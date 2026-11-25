@@ -142,7 +142,22 @@ dialog::backdrop{background:#000a}
   .tabs button{padding:6px 8px;font-size:13px}
   .preset-grid{grid-template-columns:repeat(3,1fr)}
   .topbar{padding-top:max(6px,env(safe-area-inset-top));padding-bottom:6px}
+  .editor[data-view=mini] .stage-wrap, .editor[data-view=mini] .timeline{display:none}
+  .editor[data-view=mini] .stage-col{padding:4px 8px}
+  .editor[data-view=mini] .stop-each:not(.toggle-video){display:none}
 }
+@media (min-width:861px){ .toggle-video{display:none!important} }
+.fs{position:fixed;inset:0;background:#000;z-index:200;display:flex;align-items:center;justify-content:center}
+#fsCanvas{max-width:100vw;max-height:100vh;max-height:100dvh;width:auto;height:auto;object-fit:contain;display:block;cursor:pointer}
+.fs-ui{position:absolute;inset:0;pointer-events:none;transition:opacity .3s}
+.fs-ui.idle{opacity:0}
+.fs-ui > *{pointer-events:auto}
+#fsClose{position:absolute;top:max(12px,env(safe-area-inset-top));right:12px}
+.fs-bar{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:8px;padding:12px;padding-bottom:max(12px,env(safe-area-inset-bottom));background:linear-gradient(transparent,#000c)}
+.fs-btn{background:#000a;border:1px solid #ffffff40;color:#fff;border-radius:50%;width:42px;height:42px;font-size:16px;cursor:pointer;flex:none}
+#fsPlay{background:var(--accent);color:#000;border-color:var(--accent);font-weight:900}
+#fsSeek{flex:1;min-width:0;accent-color:var(--accent);direction:ltr}
+.fs-time{color:#fff;font-size:12px;font-variant-numeric:tabular-nums;direction:ltr;flex:none}
 .wchips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 .wchip{background:#1e222b;border:1px solid var(--line);border-radius:7px;padding:3px 8px;font-size:13px;cursor:pointer;color:var(--text)}
 .wchip.on{background:var(--accent);color:#04140a;border-color:var(--accent)}

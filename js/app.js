@@ -122,13 +122,14 @@ function draw() {
     ctx.strokeRect(b.x - 8, b.y - 6, b.w + 16, b.h + 12); ctx.restore();
   }
   if (dragging && snapX) { ctx.save(); ctx.strokeStyle = '#25d366aa'; ctx.beginPath(); ctx.moveTo(cv.width / 2, 0); ctx.lineTo(cv.width / 2, cv.height); ctx.stroke(); ctx.restore(); }
+  if (fsOpen) drawFs();
 }
 let lastActive = null, stopEach = localStorage.getItem('kt_stopEach') === '1', stoppedFor = null;
 function loop() {
   if (!video.paused || needDraw) {
     const t = video.currentTime;
     // מצב הגהה: עוצר בסוף כל כתובית
-    if (stopEach && !video.paused && lastActive && lastActive !== stoppedFor) {
+    if (stopEach && !fsOpen && !video.paused && lastActive && lastActive !== stoppedFor) {
       const c = P.captions.find(x => x.id === lastActive);
       if (c && t >= c.e - 0.04) { video.pause(); stoppedFor = c.id; video.currentTime = Math.max(c.s, c.e - 0.05); }
     }
@@ -158,6 +159,45 @@ const stopBtn = $('#btnStopEach');
 const syncStop = () => { stopBtn.classList.toggle('on', stopEach); stopBtn.title = stopEach ? 'מצב הגהה פעיל: עוצר בסוף כל כתובית' : 'עצור בסוף כל כתובית (לבדיקה ועריכה)'; };
 stopBtn.onclick = () => { stopEach = !stopEach; localStorage.setItem('kt_stopEach', stopEach ? '1' : '0'); syncStop(); toast(stopEach ? '⏸ הסרטון ייעצר בסוף כל כתובית – לחץ ▶ להמשך' : 'ניגון רציף'); };
 syncStop();
+
+// ---------- תצוגה במסך מלא (בדיוק כמו הייצוא, בלי מסגרות עריכה) ----------
+const fsEl = $('#fsView'), fsCv = $('#fsCanvas'), fsCtx = fsCv.getContext('2d');
+let fsOpen = false, fsHideT;
+function drawFs() {
+  const [w, hh] = outDims(720);
+  if (fsCv.width !== w || fsCv.height !== hh) { fsCv.width = w; fsCv.height = hh; }
+  renderFrame(fsCtx, w, hh, video.currentTime, P, video.readyState >= 2 ? video : null, video.videoWidth, video.videoHeight, logoImg);
+  const seekEl = $('#fsSeek'); seekEl.max = P.duration;
+  if (document.activeElement !== seekEl) seekEl.value = video.currentTime;
+  $('#fsTime').textContent = `${fmt(video.currentTime)} / ${fmt(P.duration)}`;
+  $('#fsPlay').textContent = video.paused ? '▶' : '❚❚';
+  $('#fsMute').textContent = video.muted ? '🔇' : '🔊';
+}
+function fsShowUi() { $('#fsUi').classList.remove('idle'); clearTimeout(fsHideT); if (!video.paused) fsHideT = setTimeout(() => $('#fsUi').classList.add('idle'), 2500); }
+function openFull(fromStart) {
+  if (!file) return;
+  fsOpen = true; fsEl.classList.remove('hidden');
+  fsEl.requestFullscreen?.().catch(() => {});
+  if (fromStart) { seek(0.01); video.muted = false; video.play(); }
+  needDraw = true; fsShowUi();
+}
+function closeFull() {
+  if (!fsOpen) return;
+  fsOpen = false; video.pause(); fsEl.classList.add('hidden');
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  needDraw = true;
+}
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && fsOpen) closeFull(); });
+$('#btnFull').onclick = () => openFull(false);
+$('#btnPreviewFull').onclick = () => openFull(true);
+$('#fsClose').onclick = closeFull;
+$('#fsPlay').onclick = e => { e.stopPropagation(); togglePlay(); fsShowUi(); };
+$('#fsRestart').onclick = e => { e.stopPropagation(); seek(0.01); video.play(); fsShowUi(); };
+$('#fsMute').onclick = e => { e.stopPropagation(); video.muted = !video.muted; $('#btnMute').textContent = video.muted ? '🔇' : '🔊'; needDraw = true; };
+$('#fsSeek').oninput = e => { seek(+e.target.value); fsShowUi(); };
+fsCv.onclick = () => { togglePlay(); fsShowUi(); };
+fsEl.addEventListener('pointermove', fsShowUi);
+document.addEventListener('keydown', e => { if (fsOpen && e.key === 'Escape') closeFull(); });
 function seek(t) { video.currentTime = Math.max(0, Math.min(P.duration, t)); needDraw = true; }
 
 // ---------- בחירת כתובית / מילה ----------
@@ -273,12 +313,25 @@ tl.addEventListener('pointerup', () => tlDrag = false);
 window.addEventListener('resize', () => needDraw = true);
 
 // ================== TABS ==================
+// בטלפון: הסרטון המלא מוצג רק בלשונית "כתוביות". בשאר הלשוניות הוא מתכווץ לפס קטן (מקום לחלונית), ואפשר להציג אותו בלחיצה.
+let curTab = 'captions', showVideoOther = false;
+function applyView() {
+  const full = curTab === 'captions' || showVideoOther;
+  const ed = $('#editor'); ed.dataset.view = full ? 'full' : 'mini'; ed.dataset.tab = curTab;
+  const tg = $('#btnToggleVideo');
+  tg.classList.toggle('hidden', curTab === 'captions');
+  tg.textContent = showVideoOther ? '🙈 הסתר סרטון' : '👁 הצג סרטון';
+  needDraw = true; setTimeout(() => { needDraw = true; }, 60);
+}
+$('#btnToggleVideo').onclick = () => { showVideoOther = !showVideoOther; applyView(); };
 $$('#tabs button').forEach(b => b.onclick = () => {
+  curTab = b.dataset.tab;
   $$('#tabs button').forEach(x => x.classList.toggle('active', x === b));
   $$('.tab-panel').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== b.dataset.tab));
+  $('.panel-col').scrollTop = 0;
   if (b.dataset.tab === 'export') renderExport();
   if (b.dataset.tab === 'style') drawPresets();
-  needDraw = true;
+  applyView();
 });
 
 // ================== TRANSCRIPTION ==================
@@ -446,7 +499,7 @@ function wordEditor(c, i) {
       h('button', { class: 'btn small', onclick: applyAll, disabled: occ.length < 2 }, `🔁 שמור בכל הסרטון (${occ.length})`)),
     h('div', { class: 'row wrap gap-s' },
       h('button', { class: 'btn small' + (w.emph ? ' on' : ''), onclick: () => { w.emph = !w.emph; commit(true); renderCaps(); } }, w.emph ? '⭐ מודגשת' : '☆ הדגש'),
-      h('button', { class: 'btn small', onclick: () => { scope = 'word'; syncScope(); openTab('style'); toast('🎨 כל שינוי עיצוב יחול רק על המילה "' + w.t + '"'); } }, '🎨 עצב רק את המילה'),
+      h('button', { class: 'btn small', onclick: () => { scope = 'word'; showVideoOther = true; openTab('style'); syncScope(); toast('🎨 כל שינוי עיצוב יחול רק על המילה "' + w.t + '"'); } }, '🎨 עצב רק את המילה'),
       hasStyle ? h('button', { class: 'btn small', onclick: () => { let n = 0; for (const [cc, k] of occ) if (cc.words[k] !== w) { cc.words[k].o = clone(w.o); n++; } commit(true); renderCaps(); toast(`העיצוב הועתק ל-${n} מופעים נוספים`); }, disabled: occ.length < 2 }, '🔁 אותו עיצוב בכל הסרטון') : null,
       hasStyle ? h('button', { class: 'btn small', onclick: () => { w.o = {}; commit(true); renderCaps(); } }, '↺ אפס עיצוב') : null,
       h('button', { class: 'btn small danger', onclick: () => { c.words.splice(i, 1); selWordIdx = -1; if (!c.words.length) P.captions = P.captions.filter(x => x !== c); commit(true); renderCaps(); syncScope(); } }, '🗑 מחק מילה')),
@@ -1157,6 +1210,7 @@ document.addEventListener('keydown', e => {
 });
 
 new ResizeObserver(() => document.documentElement.style.setProperty('--tabsH', $('#tabs').offsetHeight + 'px')).observe($('#tabs'));
+applyView();
 // ================== INIT ==================
 function refreshAll() { sizeCanvas(); renderCaps(); syncControls(); renderFontList(); if (!$('[data-panel=export]').classList.contains('hidden')) renderExport(); needDraw = true; }
 buildStyleControls(); buildAnimControls(); buildFramePanel();

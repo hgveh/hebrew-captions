@@ -49,6 +49,8 @@
       <button id="btnPlay" class="play-btn">▶</button>
       <span id="timeLabel" class="time">00:00.0 / 00:00.0</span>
       <button id="btnStopEach" class="stop-each">⏸ עצור בכל כתובית</button>
+      <button id="btnToggleVideo" class="stop-each toggle-video hidden">👁 הצג סרטון</button>
+      <button id="btnFull" class="icon-btn small" title="מסך מלא">⛶</button>
       <button id="btnMute" class="icon-btn small" title="השתק">🔊</button>
     </div>
     <div class="timeline" id="timeline">
@@ -159,6 +161,7 @@
         <div id="exportOptions"></div>
       </div>
       <div class="card" id="statusPlan"></div>
+      <button id="btnPreviewFull" class="btn block big">🔍 צפה בסרטון במסך מלא לפני ייצוא</button>
       <button id="btnExport" class="btn primary block big">📲 ייצא</button>
       <div id="exportProgress" class="progress hidden"><div class="bar"></div><span></span><button id="btnCancelExport" class="btn small">ביטול</button></div>
       <div id="exportResults"></div>
@@ -184,6 +187,20 @@
     <div class="row end"><button class="btn primary" value="ok">שמור</button></div>
   </form>
 </dialog>
+
+<div id="fsView" class="fs hidden">
+  <canvas id="fsCanvas"></canvas>
+  <div class="fs-ui" id="fsUi">
+    <button id="fsClose" class="fs-btn" title="סגור">✕</button>
+    <div class="fs-bar">
+      <button id="fsPlay" class="fs-btn">▶</button>
+      <button id="fsRestart" class="fs-btn" title="מההתחלה">⏮</button>
+      <input type="range" id="fsSeek" min="0" max="1" step="0.01" value="0">
+      <span id="fsTime" class="fs-time">00:00 / 00:00</span>
+      <button id="fsMute" class="fs-btn" title="השתק">🔊</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast" class="toast"></div>
 
