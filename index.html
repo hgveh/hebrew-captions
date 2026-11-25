@@ -17,10 +17,11 @@
 <header class="topbar">
   <div class="brand"><span class="logo">כ</span> כתוביות</div>
   <div class="top-actions">
-    <button id="btnUndo" class="icon-btn" title="בטל (Ctrl+Z)">↶</button>
-    <button id="btnRedo" class="icon-btn" title="בצע שוב (Ctrl+Y)">↷</button>
-    <button id="btnNew" class="icon-btn" title="סרטון חדש">＋</button>
-    <button id="btnSettings" class="icon-btn" title="הגדרות תמלול">⚙</button>
+    <button id="btnUndo" class="tb-btn" title="בטל את הפעולה האחרונה (Ctrl+Z)"><i>↶</i><span>בטל</span></button>
+    <button id="btnRedo" class="tb-btn" title="החזר פעולה שבוטלה (Ctrl+Y)"><i>↷</i><span>החזר</span></button>
+    <button id="btnNew" class="tb-btn" title="פתח סרטון אחר"><i>📂</i><span>סרטון חדש</span></button>
+    <button id="btnHelp" class="tb-btn" title="איך משתמשים באפליקציה"><i>❓</i><span>עזרה</span></button>
+    <button id="btnSettings" class="tb-btn" title="מפתח תמלול והגדרות"><i>⚙</i><span>הגדרות</span></button>
   </div>
 </header>
 
@@ -32,6 +33,11 @@
     <div class="dz-title">העלה את הסרטון שערכת</div>
     <div class="dz-sub">לחץ לבחירה או גרור לכאן · MP4 / MOV / WEBM</div>
   </label>
+  <ol class="how">
+    <li><b>1</b><div><strong>מעלים סרטון</strong><span>הסרטון שערכת, כמו שהוא</span></div></li>
+    <li><b>2</b><div><strong>האפליקציה כותבת כתוביות</strong><span>תמלול אוטומטי בעברית, ואתה מתקן מה שצריך</span></div></li>
+    <li><b>3</b><div><strong>מעצבים ושולחים</strong><span>גופן, צבעים ואנימציה, ושיתוף ישר לסטטוס בוואטסאפ</span></div></li>
+  </ol>
   <p class="hint">הסרטון לא נשמר בשרת – הכול רץ אצלך במכשיר. רק האודיו נשלח לשירות התמלול שבחרת.</p>
 </section>
 
@@ -48,10 +54,12 @@
     <div class="transport">
       <button id="btnPlay" class="play-btn">▶</button>
       <span id="timeLabel" class="time">00:00.0 / 00:00.0</span>
-      <button id="btnStopEach" class="stop-each">⏸ עצור בכל כתובית</button>
-      <button id="btnToggleVideo" class="stop-each toggle-video hidden">👁 הצג סרטון</button>
-      <button id="btnFull" class="icon-btn small" title="מסך מלא">⛶</button>
-      <button id="btnMute" class="icon-btn small" title="השתק">🔊</button>
+      <div class="tbtns">
+        <button id="btnStopEach" class="stop-each" title="הסרטון ייעצר בסוף כל כתובית, כדי שתוכל לבדוק ולתקן">⏸ עצור בכל כתובית</button>
+        <button id="btnToggleVideo" class="stop-each toggle-video hidden">👁 הצג סרטון</button>
+        <button id="btnFull" class="stop-each" title="הסרטון במסך מלא, בדיוק כמו שייצא">⛶ מסך מלא</button>
+        <button id="btnMute" class="stop-each" title="השתק / בטל השתקה">🔊 קול</button>
+      </div>
     </div>
     <div class="timeline" id="timeline">
       <canvas id="timelineCanvas"></canvas>
@@ -60,87 +68,106 @@
   </div>
 
   <div class="panel-col">
-    <nav class="tabs" id="tabs">
-      <button data-tab="captions" class="active">📝 כתוביות</button>
-      <button data-tab="style">🎨 עיצוב</button>
-      <button data-tab="anim">✨ אנימציה</button>
-      <button data-tab="fonts">🔤 גופנים</button>
-      <button data-tab="frame">📐 מסגור</button>
-      <button data-tab="export" class="tab-export">📲 ייצוא</button>
-    </nav>
+    <div class="tabs" id="tabs">
+      <nav class="steps" id="steps">
+        <button data-tab="captions" class="active"><b>1</b><span>תמלול ותיקון</span></button>
+        <button data-tab="design"><b>2</b><span>עיצוב</span></button>
+        <button data-tab="export"><b>3</b><span>ייצוא ושיתוף</span></button>
+      </nav>
+      <nav class="subtabs hidden" id="subtabs">
+        <button data-tab="style" class="active">🎨 סגנון</button>
+        <button data-tab="fonts">🔤 גופן</button>
+        <button data-tab="anim">✨ אנימציה</button>
+        <button data-tab="frame">📐 גודל וחיתוך</button>
+      </nav>
+    </div>
 
-    <!-- כתוביות -->
+    <!-- שלב 1: תמלול ותיקון -->
     <section class="tab-panel" data-panel="captions">
-      <div class="card">
-        <button id="btnTranscribe" class="btn primary block big">🎙 תמלל אוטומטית</button>
-        <select id="providerQuick" title="שירות תמלול"></select>
-        <div id="transcribeStatus" class="status-line"></div>
-        <div class="row wrap gap-s">
-          <label class="mini">מילים לכתובית <input type="number" id="segMaxWords" min="1" max="15" value="4"></label>
-          <label class="mini">תווים מקס׳ <input type="number" id="segMaxChars" min="5" max="80" value="24"></label>
-          <label class="mini chk"><input type="checkbox" id="segPunct" checked> חתוך בפיסוק</label>
-          <button id="btnResegment" class="btn small">↻ חלק מחדש</button>
+      <div class="card step-card">
+        <div class="step-title"><span class="step-num">1</span> כתיבת הכתוביות</div>
+        <div id="keyBanner" class="banner hidden">
+          <b>לפני התמלול הראשון:</b> צריך מפתח לשירות התמלול (פעם אחת בלבד, לוקח דקה).
+          <button id="btnGetKey" class="btn small primary">איך משיגים מפתח ←</button>
         </div>
+        <button id="btnTranscribe" class="btn primary block big">🎙 כתוב לי כתוביות אוטומטית</button>
+        <div class="hint">האפליקציה מקשיבה לסרטון וכותבת כל מילה בעברית עם התזמון שלה. אחרי זה עוברים על הטקסט ומתקנים.</div>
+        <div id="transcribeStatus" class="status-line"></div>
+        <details class="adv">
+          <summary>⚙ התאמות לתמלול (לא חובה)</summary>
+          <label class="field">שירות תמלול<select id="providerQuick" title="שירות תמלול"></select></label>
+          <div class="row wrap gap-s">
+            <label class="mini">מילים בכל כתובית <input type="number" id="segMaxWords" min="1" max="15" value="4"></label>
+            <label class="mini">אותיות מקסימום <input type="number" id="segMaxChars" min="5" max="80" value="24"></label>
+            <label class="mini chk"><input type="checkbox" id="segPunct" checked> לחתוך אחרי נקודה/פסיק</label>
+          </div>
+          <button id="btnResegment" class="btn small">↻ חלק את הכתוביות מחדש לפי ההגדרות</button>
+        </details>
       </div>
 
       <details class="card tools">
-        <summary>🧰 כלים</summary>
-        <div class="tool-grid">
-          <button id="btnAddCap" class="btn small">＋ כתובית בזמן הנוכחי</button>
-          <button id="btnFillers" class="btn small">🧹 הסר מילות מילוי (אממ, אה…)</button>
-          <button id="btnAutoEmoji" class="btn small">😀 אימוג׳י אוטומטי</button>
-          <button id="btnClearEmoji" class="btn small">🚫 נקה אימוג׳י</button>
-          <button id="btnAutoEmph" class="btn small">⭐ הדגשה אוטומטית</button>
-          <button id="btnRemovePunct" class="btn small">✂ הסר פיסוק</button>
-          <button id="btnCensor" class="btn small">🤬 צנזר קללות</button>
-          <button id="btnCopyText" class="btn small">📋 העתק תמליל</button>
+        <summary>🧰 עוד כלים לתיקון מהיר</summary>
+        <div class="tool-list">
+          <button id="btnAddCap" class="tool"><b>＋ הוסף כתובית ידנית</b><small>מוסיפה כתובית חדשה במקום שבו הסרטון עומד</small></button>
+          <button id="btnFillers" class="tool"><b>🧹 מחק מילות מילוי</b><small>מוחק "אממ", "אה" וכדומה מכל הכתוביות</small></button>
+          <button id="btnAutoEmoji" class="tool"><b>😀 הוסף אימוג׳י לפי התוכן</b><small>למשל 💰 ליד המילה "כסף"</small></button>
+          <button id="btnClearEmoji" class="tool"><b>🚫 מחק את כל האימוג׳י</b><small>מסיר אימוג׳י מכל הכתוביות</small></button>
+          <button id="btnAutoEmph" class="tool"><b>⭐ הדגש מילות מפתח</b><small>מדגיש בכל כתובית את המילה החשובה</small></button>
+          <button id="btnRemovePunct" class="tool"><b>✂ מחק נקודות ופסיקים</b><small>מוריד סימני פיסוק מסוף המילים</small></button>
+          <button id="btnCensor" class="tool"><b>🤬 צנזר קללות</b><small>מחליף אותיות באמצע קללה בכוכביות</small></button>
+          <button id="btnCopyText" class="tool"><b>📋 העתק את כל הטקסט</b><small>מעתיק את התמליל ללוח, למשל להדבקה בפוסט</small></button>
         </div>
+        <div class="tool-group">חיפוש והחלפה בכל הסרטון</div>
         <div class="row wrap gap-s">
-          <input id="findText" placeholder="חפש" class="grow">
-          <input id="replaceText" placeholder="החלף ב" class="grow">
-          <button id="btnReplace" class="btn small">החלף הכול</button>
+          <input id="findText" placeholder="מה לחפש" class="grow">
+          <input id="replaceText" placeholder="במה להחליף" class="grow">
+          <button id="btnReplace" class="btn small">החלף בכל מקום</button>
         </div>
+        <div class="tool-group">הכתוביות מקדימות או מאחרות?</div>
         <div class="row wrap gap-s">
-          <label class="mini">הזזת תזמון (שנ׳) <input type="number" id="shiftSec" step="0.05" value="0"></label>
-          <button id="btnShift" class="btn small">הזז הכול</button>
+          <label class="mini">הזז בשניות (מינוס = מוקדם יותר) <input type="number" id="shiftSec" step="0.05" value="0"></label>
+          <button id="btnShift" class="btn small">הזז את כל הכתוביות</button>
         </div>
+        <div class="tool-group">שמירה וקבצים</div>
         <div class="row wrap gap-s">
-          <button id="btnExportSrt" class="btn small">⬇ SRT</button>
+          <button id="btnExportSrt" class="btn small" title="קובץ כתוביות רגיל">⬇ הורד כתוביות (SRT)</button>
           <button id="btnExportVtt" class="btn small">⬇ VTT</button>
-          <button id="btnExportTxt" class="btn small">⬇ TXT</button>
-          <label class="btn small">⬆ ייבא SRT/VTT<input type="file" id="importSrt" accept=".srt,.vtt,text/plain" hidden></label>
-          <button id="btnSaveProject" class="btn small">💾 שמור פרויקט</button>
-          <label class="btn small">📂 טען פרויקט<input type="file" id="loadProject" accept=".json,application/json" hidden></label>
+          <button id="btnExportTxt" class="btn small">⬇ טקסט בלבד</button>
+          <label class="btn small">⬆ טען קובץ כתוביות<input type="file" id="importSrt" accept=".srt,.vtt,text/plain" hidden></label>
+          <button id="btnSaveProject" class="btn small" title="האפליקציה גם שומרת לבד במכשיר">💾 שמור גיבוי של העבודה</button>
+          <label class="btn small">📂 טען גיבוי<input type="file" id="loadProject" accept=".json,application/json" hidden></label>
         </div>
       </details>
 
+      <div class="list-head" id="listHead"><b>הכתוביות שלך</b><span>הקש על כתובית כדי לתקן את הטקסט. הקש על מילה כדי לערוך או לעצב רק אותה.</span></div>
       <div id="capList" class="cap-list"></div>
-      <div id="capEmpty" class="empty">עדיין אין כתוביות. לחץ על <b>תמלל אוטומטית</b> או הוסף ידנית.</div>
+      <div id="capEmpty" class="empty">עדיין אין כתוביות.<br>לחץ על <b>"כתוב לי כתוביות אוטומטית"</b> למעלה, או הוסף כתובית ידנית דרך "עוד כלים".</div>
+      <button class="btn primary block big next-step" data-goto="style" id="nextFromCaptions">הכתוביות מוכנות? המשך לעיצוב ←</button>
     </section>
 
-    <!-- עיצוב -->
+    <!-- שלב 2: עיצוב -->
     <section class="tab-panel hidden" data-panel="style">
       <div class="card">
-        <h3>סגנונות מוכנים</h3>
+        <h3>התחל מסגנון מוכן</h3>
+        <div class="hint">לחיצה על סגנון משנה את כל הכתוביות. אחר כך אפשר לכוונן הכול למטה.</div>
         <div id="presetGrid" class="preset-grid"></div>
         <div class="row gap-s">
-          <button id="btnSavePreset" class="btn small">💾 שמור את העיצוב שלי כסגנון</button>
+          <button id="btnSavePreset" class="btn small">💾 שמור את העיצוב הנוכחי כסגנון שלי</button>
         </div>
       </div>
       <div class="card" id="styleControls"></div>
     </section>
 
-    <!-- אנימציה -->
     <section class="tab-panel hidden" data-panel="anim">
       <div class="card" id="animControls"></div>
-      <p class="hint">אפשר לקבוע אנימציה שונה לכתובית מסוימת – בכרטיס הכתובית בלשונית "כתוביות" (⚙).</p>
+      <p class="hint">אפשר לתת אנימציה שונה לכתובית אחת: מקישים עליה בשלב 1 ואז בוחרים למעלה "כתובית".</p>
     </section>
 
     <!-- גופנים -->
     <section class="tab-panel hidden" data-panel="fonts">
       <div class="card">
-        <h3>העלאת גופן משלך</h3>
-        <p class="hint">כל קובץ גופן (TTF, OTF, WOFF, WOFF2) או קובץ ZIP עם כמה גופנים. אפשר לבחור הרבה קבצים בבת אחת – המשקלים של כל משפחה מתאחדים אוטומטית, ובוחרים משקל מתוך המשפחה. הגופנים נשמרים במכשיר.</p>
+        <h3>הוסף גופנים משלך</h3>
+        <p class="hint">בוחרים קבצי גופן (TTF, OTF, WOFF) או קובץ ZIP אחד עם כמה גופנים, אפשר הרבה בבת אחת. המשקלים של כל גופן מתאחדים לבד, ובוחרים משקל מתוך הגופן. הגופנים נשמרים במכשיר, ומספיק להוסיף אותם פעם אחת.</p>
         <label class="btn primary block">⬆ העלה קבצי גופן / ZIP<input type="file" id="fontInput" accept=".ttf,.otf,.woff,.woff2,.ttc,.zip,application/zip,font/*,application/font-sfnt,application/x-font-ttf,application/octet-stream" multiple hidden></label>
         <button id="btnLocalFonts" class="btn block">💻 ייבא גופנים שמותקנים במחשב</button>
         <div id="fontList" class="font-list"></div>
@@ -152,8 +179,12 @@
 
     <!-- ייצוא -->
     <section class="tab-panel hidden" data-panel="export">
+      <div class="card step-card">
+        <div class="step-title"><span class="step-num">3</span> ייצוא ושיתוף</div>
+        <div class="hint">בוחרים לאן הסרטון מיועד, צופים בו במסך מלא, ומייצאים. אחרי הייצוא יופיע כפתור שיתוף ישיר לוואטסאפ.</div>
+      </div>
       <div class="card">
-        <h3>יעד</h3>
+        <h3>לאן הסרטון מיועד?</h3>
         <div class="seg" id="exportTarget">
           <button data-v="status" class="active">🟢 סטטוס וואטסאפ</button>
           <button data-v="file">🎞 סרטון רגיל</button>
@@ -161,8 +192,8 @@
         <div id="exportOptions"></div>
       </div>
       <div class="card" id="statusPlan"></div>
-      <button id="btnPreviewFull" class="btn block big">🔍 צפה בסרטון במסך מלא לפני ייצוא</button>
-      <button id="btnExport" class="btn primary block big">📲 ייצא</button>
+      <button id="btnPreviewFull" class="btn block big">🔍 קודם צפה בסרטון במסך מלא</button>
+      <button id="btnExport" class="btn primary block big">📲 ייצא את הסרטון</button>
       <div id="exportProgress" class="progress hidden"><div class="bar"></div><span></span><button id="btnCancelExport" class="btn small">ביטול</button></div>
       <div id="exportResults"></div>
     </section>
@@ -172,19 +203,43 @@
 <!-- הגדרות -->
 <dialog id="settingsDlg">
   <form method="dialog" class="dlg">
-    <h2>הגדרות תמלול</h2>
-    <label>שירות תמלול
-      <select id="setProvider"></select>
+    <h2>🔑 מפתח לתמלול אוטומטי</h2>
+    <div class="guide-steps" id="keySteps">
+      <b>איך משיגים מפתח (פעם אחת, כדקה):</b>
+      <ol>
+        <li>נכנסים ל-<a href="https://elevenlabs.io" target="_blank" rel="noopener">elevenlabs.io</a> ונרשמים (אפשר עם Google).</li>
+        <li>לוחצים על התמונה שלך למעלה, בוחרים <b>API Keys</b> ואז לוחצים על <b>Create API Key</b>.</li>
+        <li>מעתיקים את המפתח ומדביקים בשדה למטה.</li>
+      </ol>
+    </div>
+    <label>המפתח שלך<input id="setKey" type="password" autocomplete="off" dir="ltr" placeholder="הדבק כאן את המפתח"></label>
+    <label>מילון שמות ומונחים (לא חובה)
+      <textarea id="setVocab" rows="2" placeholder="שמות של אנשים, מותגים או מילים מקצועיות שחשוב שייכתבו נכון"></textarea>
     </label>
-    <div id="providerHelp" class="hint"></div>
-    <label>מפתח API<input id="setKey" type="password" autocomplete="off" dir="ltr" placeholder="sk-..."></label>
-    <label>מודל<input id="setModel" dir="ltr"></label>
-    <label id="endpointRow">כתובת שרת (OpenAI-compatible)<input id="setEndpoint" dir="ltr" placeholder="https://my-server/v1/audio/transcriptions"></label>
-    <label>מילון מונחים / שמות (משפר דיוק)
-      <textarea id="setVocab" rows="3" placeholder="לדוגמה: שמות של אנשים, מותגים, מונחים מקצועיים"></textarea>
-    </label>
-    <p class="hint">המפתחות נשמרים רק בדפדפן שלך (localStorage) ונשלחים ישירות לספק התמלול.</p>
+    <details class="adv">
+      <summary>⚙ הגדרות מתקדמות</summary>
+      <label>שירות תמלול
+        <select id="setProvider"></select>
+      </label>
+      <div id="providerHelp" class="hint"></div>
+      <label>מודל<input id="setModel" dir="ltr"></label>
+      <label id="endpointRow">כתובת שרת (תואם OpenAI)<input id="setEndpoint" dir="ltr" placeholder="https://my-server/v1/audio/transcriptions"></label>
+    </details>
+    <p class="hint">המפתח נשמר רק בדפדפן שלך ונשלח ישירות לשירות התמלול, לא אלינו ולא לשום שרת אחר.</p>
     <div class="row end"><button class="btn primary" value="ok">שמור</button></div>
+  </form>
+</dialog>
+
+<dialog id="helpDlg">
+  <form method="dialog" class="dlg">
+    <h2>איך זה עובד? 3 שלבים</h2>
+    <ol class="how big">
+      <li><b>1</b><div><strong>תמלול ותיקון</strong><span>לוחצים "כתוב לי כתוביות אוטומטית". אחר כך מקישים על הטקסט כדי לתקן, או על מילה בסרטון כדי לערוך רק אותה. כפתור "עצור בכל כתובית" עוזר לעבור על הכול בנחת.</span></div></li>
+      <li><b>2</b><div><strong>עיצוב</strong><span>בוחרים סגנון מוכן, גופן, צבעים ואנימציה. למעלה מחליטים אם השינוי חל על כל הסרטון, על כתובית אחת או על מילה אחת.</span></div></li>
+      <li><b>3</b><div><strong>ייצוא ושיתוף</strong><span>בוחרים "סטטוס וואטסאפ", צופים במסך מלא, מייצאים, ושולחים ישר לוואטסאפ בלי לשמור בגלריה.</span></div></li>
+    </ol>
+    <p class="hint">הכול נשמר אוטומטית במכשיר. אפשר לסגור ולחזור לאותו סרטון בהמשך.</p>
+    <div class="row end"><button class="btn primary" value="ok">הבנתי, מתחילים</button></div>
   </form>
 </dialog>
 

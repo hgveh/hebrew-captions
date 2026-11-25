@@ -94,6 +94,7 @@ async function loadFile(f) {
   video.currentTime = 0.01;
   refreshAll();
   ensureFont();
+  goTab('captions'); updateKeyBanner(); maybeShowIntro();
 }
 
 // ================== PREVIEW ==================
@@ -153,8 +154,9 @@ video.addEventListener('play', () => { $('#btnPlay').textContent = '❚❚'; con
 video.addEventListener('pause', () => { $('#btnPlay').textContent = '▶'; needDraw = true; });
 document.fonts.addEventListener?.('loadingdone', () => { needDraw = true; drawPresets(); });
 $('#btnPlay').onclick = togglePlay;
-function togglePlay() { if (video.paused) { if (video.currentTime >= P.duration - 0.05) video.currentTime = 0; video.play(); } else video.pause(); }
-$('#btnMute').onclick = () => { video.muted = !video.muted; $('#btnMute').textContent = video.muted ? '🔇' : '🔊'; };
+function togglePlay() { if (video.paused) { if (video.currentTime >= P.duration - 0.05) video.currentTime = 0; video.play().catch(() => {}); } else video.pause(); }
+const syncMute = () => { $('#btnMute').textContent = video.muted ? '🔇 מושתק' : '🔊 קול'; };
+$('#btnMute').onclick = () => { video.muted = !video.muted; syncMute(); needDraw = true; };
 const stopBtn = $('#btnStopEach');
 const syncStop = () => { stopBtn.classList.toggle('on', stopEach); stopBtn.title = stopEach ? 'מצב הגהה פעיל: עוצר בסוף כל כתובית' : 'עצור בסוף כל כתובית (לבדיקה ועריכה)'; };
 stopBtn.onclick = () => { stopEach = !stopEach; localStorage.setItem('kt_stopEach', stopEach ? '1' : '0'); syncStop(); toast(stopEach ? '⏸ הסרטון ייעצר בסוף כל כתובית – לחץ ▶ להמשך' : 'ניגון רציף'); };
@@ -193,7 +195,7 @@ $('#btnPreviewFull').onclick = () => openFull(true);
 $('#fsClose').onclick = closeFull;
 $('#fsPlay').onclick = e => { e.stopPropagation(); togglePlay(); fsShowUi(); };
 $('#fsRestart').onclick = e => { e.stopPropagation(); seek(0.01); video.play(); fsShowUi(); };
-$('#fsMute').onclick = e => { e.stopPropagation(); video.muted = !video.muted; $('#btnMute').textContent = video.muted ? '🔇' : '🔊'; needDraw = true; };
+$('#fsMute').onclick = e => { e.stopPropagation(); video.muted = !video.muted; syncMute(); needDraw = true; };
 $('#fsSeek').oninput = e => { seek(+e.target.value); fsShowUi(); };
 fsCv.onclick = () => { togglePlay(); fsShowUi(); };
 fsEl.addEventListener('pointermove', fsShowUi);
@@ -324,15 +326,38 @@ function applyView() {
   needDraw = true; setTimeout(() => { needDraw = true; }, 60);
 }
 $('#btnToggleVideo').onclick = () => { showVideoOther = !showVideoOther; applyView(); };
-$$('#tabs button').forEach(b => b.onclick = () => {
-  curTab = b.dataset.tab;
-  $$('#tabs button').forEach(x => x.classList.toggle('active', x === b));
-  $$('.tab-panel').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== b.dataset.tab));
+const DESIGN_TABS = ['style', 'fonts', 'anim', 'frame'];
+let lastDesign = 'style';
+function goTab(name) {
+  if (name === 'design') name = lastDesign;
+  curTab = name;
+  const inDesign = DESIGN_TABS.includes(name);
+  if (inDesign) lastDesign = name;
+  const step = inDesign ? 'design' : name;
+  $$('#steps button').forEach(x => x.classList.toggle('active', x.dataset.tab === step));
+  $('#subtabs').classList.toggle('hidden', !inDesign);
+  $$('#subtabs button').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
+  $$('.tab-panel').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== name));
   $('.panel-col').scrollTop = 0;
-  if (b.dataset.tab === 'export') renderExport();
-  if (b.dataset.tab === 'style') drawPresets();
+  if (name === 'export') renderExport();
+  if (name === 'style') drawPresets();
   applyView();
-});
+}
+$$('#tabs button').forEach(b => b.onclick = () => goTab(b.dataset.tab));
+// כפתורי "המשך לשלב הבא"
+$('#nextFromCaptions').onclick = () => goTab('style');
+const addNextButtons = () => { for (const name of DESIGN_TABS) document.querySelector(`[data-panel=${name}]`).append(h('button', { class: 'btn primary block big next-step', onclick: () => goTab('export') }, 'העיצוב מוכן? המשך לייצוא ←')); };
+
+// ---------- עזרה והדרכה ----------
+const helpDlg = $('#helpDlg');
+$('#btnHelp').onclick = () => helpDlg.showModal();
+function maybeShowIntro() { if (!localStorage.getItem('kt_intro')) { localStorage.setItem('kt_intro', '1'); setTimeout(() => helpDlg.showModal(), 400); } }
+function updateKeyBanner() {
+  const s = getSettings();
+  const need = s.provider !== 'custom' && !s.keys[s.provider];
+  $('#keyBanner').classList.toggle('hidden', !need);
+}
+$('#btnGetKey').onclick = () => openSettings();
 
 // ================== TRANSCRIPTION ==================
 function fillProviderSelect(sel, val) {
@@ -340,7 +365,7 @@ function fillProviderSelect(sel, val) {
   sel.value = val;
 }
 fillProviderSelect($('#providerQuick'), getSettings().provider);
-$('#providerQuick').onchange = e => { const s = getSettings(); s.provider = e.target.value; saveSettings(s); };
+$('#providerQuick').onchange = e => { const s = getSettings(); s.provider = e.target.value; saveSettings(s); updateKeyBanner(); };
 
 $('#btnTranscribe').onclick = async () => {
   if (!file) return;
@@ -397,16 +422,22 @@ const sortCaps = () => P.captions.sort((a, b) => a.s - b.s);
 function renderCaps() {
   const list = $('#capList'); list.innerHTML = '';
   $('#capEmpty').classList.toggle('hidden', P.captions.length > 0);
+  $('#listHead').classList.toggle('hidden', !P.captions.length);
+  $('#nextFromCaptions').classList.toggle('hidden', !P.captions.length);
   sortCaps();
   P.captions.forEach((c, idx) => list.append(capCard(c, idx)));
   lastActive = null; needDraw = true;
 }
 function capCard(c, idx) {
-  const sIn = h('input', { type: 'number', step: '0.05', value: fmtS(c.s), title: 'התחלה' });
-  const eIn = h('input', { type: 'number', step: '0.05', value: fmtS(c.e), title: 'סוף' });
-  sIn.onchange = () => { retime(c, +sIn.value, c.e); commit(); renderWords(); needDraw = true; };
-  eIn.onchange = () => { retime(c, c.s, +eIn.value); commit(); renderWords(); needDraw = true; };
-  const ta = h('textarea', { rows: 1, dir: 'auto' }); ta.value = capText(c);
+  const timeBtn = h('button', { class: 'time-chip', title: 'לחץ כדי לשנות מתי הכתובית מופיעה ומתי היא נעלמת' }, `⏱ ${fmtS(c.s)}–${fmtS(c.e)}`);
+  const sIn = h('input', { type: 'number', step: '0.05', value: fmtS(c.s) });
+  const eIn = h('input', { type: 'number', step: '0.05', value: fmtS(c.e) });
+  const timing = h('div', { class: 'timing hidden' }, h('label', {}, 'מופיעה בשנייה', sIn), h('label', {}, 'נעלמת בשנייה', eIn));
+  timeBtn.onclick = () => timing.classList.toggle('hidden');
+  const refreshTime = () => { timeBtn.textContent = `⏱ ${fmtS(c.s)}–${fmtS(c.e)}`; sIn.value = fmtS(c.s); eIn.value = fmtS(c.e); };
+  sIn.onchange = () => { retime(c, +sIn.value, c.e); commit(); renderWords(); refreshTime(); needDraw = true; };
+  eIn.onchange = () => { retime(c, c.s, +eIn.value); commit(); renderWords(); refreshTime(); needDraw = true; };
+  const ta = h('textarea', { rows: 1, dir: 'auto', placeholder: 'כתוב כאן את הטקסט של הכתובית', title: 'הקש כדי לתקן את הטקסט' }); ta.value = capText(c);
   const fit = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
   ta.oninput = () => { setCapText(c, ta.value); fit(); renderWords(); commit(); };
   ta.onfocus = () => {
@@ -428,44 +459,31 @@ function capCard(c, idx) {
     words.innerHTML = '';
     c.words.forEach((w, i) => {
       const isSel = c.id === selId && i === selWordIdx;
-      const chip = h('span', { class: 'word' + (w.emph ? ' emph' : '') + (isSel ? ' sel' : '') + (w.o && Object.keys(w.o).length ? ' styled' : ''), title: `${fmtS(w.s)}–${fmtS(w.e)} · לחיצה = עריכת המילה` }, w.t);
+      const chip = h('span', { class: 'word' + (w.emph ? ' emph' : '') + (isSel ? ' sel' : '') + (w.o && Object.keys(w.o).length ? ' styled' : ''), title: `${fmtS(w.s)}–${fmtS(w.e)} · הקש לעריכת המילה` }, w.t);
       chip.onclick = () => isSel ? clearWord() : selectWord(c, i);
       words.append(chip);
     });
   };
   renderWords();
   const wEd = c.id === selId && c.words[selWordIdx] ? wordEditor(c, selWordIdx) : null;
-  const opts = h('div', { class: 'cap-opts hidden' });
-  const o = c.o || (c.o = {});
-  const mkSel = (label, key, map) => {
-    const s = h('select', {}, h('option', { value: '' }, 'ברירת מחדל'), ...Object.entries(map).map(([k, v]) => h('option', { value: k }, v)));
-    s.value = o[key] ?? ''; s.onchange = () => { o[key] = s.value; commit(); };
-    return h('label', {}, label, s);
-  };
   const emo = h('input', { value: c.emoji || '', placeholder: '😀', maxlength: 8 });
   emo.oninput = () => { c.emoji = emo.value.trim(); commit(); };
-  const col = h('input', { type: 'color', value: o.color || P.style.color });
-  col.oninput = () => { o.color = col.value; commit(); };
-  const posSel = h('select', {}, h('option', { value: '' }, 'ברירת מחדל'), h('option', { value: '0.2' }, 'למעלה'), h('option', { value: '0.5' }, 'אמצע'), h('option', { value: '0.75' }, 'למטה'));
-  posSel.value = o.posY != null && o.posY !== '' ? String(o.posY) : '';
-  posSel.onchange = () => { o.posY = posSel.value === '' ? '' : +posSel.value; commit(); };
-  const sizeIn = h('input', { type: 'number', step: '0.5', placeholder: String(P.style.fontSize), value: o.fontSize ?? '' });
-  sizeIn.onchange = () => { o.fontSize = sizeIn.value === '' ? '' : +sizeIn.value; commit(); };
-  opts.append(
-    mkSel('כניסה', 'animIn', ANIMS_IN), mkSel('יציאה', 'animOut', ANIMS_OUT), mkSel('אפקט מילים', 'wordAnim', WORD_ANIMS),
-    h('label', {}, 'מיקום', posSel), h('label', {}, 'אימוג׳י', emo), h('label', {}, 'גודל גופן', sizeIn),
-    h('label', {}, 'צבע טקסט', col), h('label', {}, ' ', h('button', { class: 'btn small', onclick: () => { c.o = {}; commit(); renderCaps(); } }, 'איפוס עיצוב'))
-  );
+  const emoRow = h('div', { class: 'emo-row' + (c.emoji ? '' : ' hidden') }, 'אימוג׳י שיופיע עם הכתובית:', emo);
+  const act = (label, tip, fn, cls = '') => h('button', { class: 'act ' + cls, title: tip, onclick: e => { e.stopPropagation(); fn(); } }, label);
+  const hasOwn = c.o && Object.values(c.o).some(v => v !== '' && v != null);
+  const actions = h('div', { class: 'cap-actions' },
+    act('▶ נגן', 'נגן את הכתובית הזו', () => { seek(c.s); video.play(); }),
+    act('✂ פצל לשתיים', 'חלק את הכתובית לשתי כתוביות', () => splitCap(c)),
+    act('⤵ מזג עם הבאה', 'חבר את הכתובית הזו לכתובית שאחריה', () => mergeNext(c)),
+    act(hasOwn ? '🎨 עיצוב אישי ✓' : '🎨 עצב רק אותה', 'שנה צבע, גופן או אנימציה רק לכתובית הזו', () => {
+      selId = c.id; selWordIdx = -1; scope = 'cap'; showVideoOther = true; seek(c.s + 0.01);
+      openTab('style'); syncScope(); toast('🎨 השינויים יחולו רק על כתובית #' + (idx + 1));
+    }, hasOwn ? 'on' : ''),
+    act('😀 אימוג׳י', 'הוסף אימוג׳י לכתובית', () => emoRow.classList.toggle('hidden')),
+    act('🗑 מחק', 'מחק את הכתובית', () => { P.captions = P.captions.filter(x => x !== c); commit(true); renderCaps(); }, 'danger'));
   const card = h('div', { class: 'cap' + (c.id === selId ? ' sel' : ''), 'data-id': c.id },
-    h('div', { class: 'cap-head' },
-      h('b', {}, '#' + (idx + 1)), sIn, '→', eIn, h('span', { class: 'sp' }),
-      h('button', { title: 'נגן מכאן', onclick: () => { seek(c.s); video.play(); } }, '▶'),
-      h('button', { title: 'פצל באמצע', onclick: () => splitCap(c) }, '✂'),
-      h('button', { title: 'מזג עם הבאה', onclick: () => mergeNext(c) }, '⇣'),
-      h('button', { title: 'עיצוב / אנימציה לכתובית זו', onclick: () => opts.classList.toggle('hidden') }, '⚙'),
-      h('button', { title: 'מחק', onclick: () => { P.captions = P.captions.filter(x => x !== c); commit(true); renderCaps(); } }, '🗑'),
-    ),
-    ta, words, wEd, opts);
+    h('div', { class: 'cap-head' }, h('b', {}, '#' + (idx + 1)), timeBtn),
+    timing, ta, words, wEd, emoRow, actions);
   card.onclick = e => { if (e.target === card) { selId = c.id; highlightSel(); seek(c.s + 0.01); } };
   return card;
 }
@@ -1187,6 +1205,7 @@ function fillSettings(s) {
   $('#setVocab').value = s.vocab || '';
   $('#providerHelp').textContent = PROVIDERS[p].help;
   $('#endpointRow').classList.toggle('hidden', p !== 'custom');
+  $('#keySteps').classList.toggle('hidden', p !== 'elevenlabs');
 }
 $('#setProvider').onchange = () => { const s = getSettings(); fillSettings(s); };
 $('#btnSettings').onclick = openSettings;
@@ -1195,7 +1214,7 @@ dlg.addEventListener('close', () => {
   const s = getSettings(); const p = $('#setProvider').value;
   s.provider = p; s.keys[p] = $('#setKey').value.trim(); s.models[p] = $('#setModel').value.trim() || PROVIDERS[p].model;
   s.endpoint = $('#setEndpoint').value.trim(); s.vocab = $('#setVocab').value;
-  saveSettings(s); $('#providerQuick').value = p; toast('ההגדרות נשמרו ✔');
+  saveSettings(s); $('#providerQuick').value = p; updateKeyBanner(); toast('ההגדרות נשמרו ✔' + (s.keys[p] ? ' – אפשר לתמלל' : ''));
 });
 
 // ================== KEYBOARD ==================
@@ -1213,9 +1232,9 @@ new ResizeObserver(() => document.documentElement.style.setProperty('--tabsH', $
 applyView();
 // ================== INIT ==================
 function refreshAll() { sizeCanvas(); renderCaps(); syncControls(); renderFontList(); if (!$('[data-panel=export]').classList.contains('hidden')) renderExport(); needDraw = true; }
-buildStyleControls(); buildAnimControls(); buildFramePanel();
+buildStyleControls(); buildAnimControls(); buildFramePanel(); addNextButtons();
 loadStoredFonts();
-syncControls();
+syncControls(); syncMute(); updateKeyBanner();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 // קובץ ששותף לאפליקציה (מהגלריה → שתף → כתוביות)
