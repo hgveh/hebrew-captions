@@ -2,6 +2,7 @@ import { DEFAULT_STYLE, ANIMS_IN, ANIMS_OUT, WORD_ANIMS, renderFrame, drawCaptio
 import { PROVIDERS, getSettings, saveSettings, transcribe, segment, spreadWords, newId, FILLERS } from './transcribe.js';
 import { exportVideo, planStatusParts, statusBitrate, supportsExport } from './exporter.js';
 import * as store from './storage.js';
+import { parseFont, mergeLetterSuffix, unzip, WEIGHT_NAMES } from './fontmeta.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -62,7 +63,7 @@ $('#fileInput').onchange = e => e.target.files[0] && loadFile(e.target.files[0])
 const dz = $('#dropzone');
 ['dragover', 'dragenter'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('over'); }));
-document.addEventListener('drop', e => { const f = [...(e.dataTransfer?.files || [])]; const v = f.find(x => x.type.startsWith('video/')); if (v) loadFile(v); const fonts = f.filter(x => /\.(ttf|otf|woff2?)$/i.test(x.name)); if (fonts.length) addFonts(fonts); });
+document.addEventListener('drop', e => { const f = [...(e.dataTransfer?.files || [])]; const v = f.find(x => x.type.startsWith('video/')); if (v) loadFile(v); const fonts = f.filter(x => /\.(ttf|otf|woff2?|ttc|zip)$/i.test(x.name)); if (fonts.length) addFonts(fonts); });
 $('#btnNew').onclick = () => { if (file && !confirm('לפתוח סרטון חדש? הפרויקט הנוכחי שמור במכשיר.')) return; $('#fileInput').value = ''; $('#fileInput').click(); };
 
 async function loadFile(f) {
@@ -514,13 +515,15 @@ const G = t => h('div', { class: 'group-title' }, t);
 function buildStyleControls() {
   const S = styleObj;
   const fontSel = h('select', { id: 'fontSelect' });
-  fontSel.onchange = () => { P.style.fontFamily = fontSel.value; rememberStyle(); commit(); ensureFont(); renderFontList(); };
-  binders.push(() => { fillFontSelect(fontSel); fontSel.value = P.style.fontFamily; });
+  fontSel.onchange = () => setFamily(fontSel.value);
+  const weightSel = h('select', { id: 'weightSelect' });
+  weightSel.onchange = () => { P.style.fontWeight = +weightSel.value; rememberStyle(); commit(); ensureFont(); renderFontList(); };
+  binders.push(() => { fillFontSelect(fontSel); fontSel.value = P.style.fontFamily; fillWeightSelect(weightSel); });
   $('#styleControls').append(
     G('טקסט'),
     h('div', { class: 'ctrl', style: 'grid-template-columns:110px 1fr' }, h('span', {}, 'גופן'), fontSel),
     ctrl(S, 'fontSize', 'גודל', 'range', { min: 2, max: 18, step: 0.1 }),
-    ctrl(S, 'fontWeight', 'עובי', 'select', { num: true, options: { 300: 'דק', 400: 'רגיל', 500: 'בינוני', 600: 'חצי-בולט', 700: 'בולט', 800: 'בולט מאוד', 900: 'שחור' }, onSet: () => ensureFont() }),
+    h('div', { class: 'ctrl', style: 'grid-template-columns:110px 1fr' }, h('span', {}, 'משקל'), weightSel),
     ctrl(S, 'italic', 'נטוי', 'toggle'),
     ctrl(S, 'color', 'צבע טקסט', 'color'),
     ctrl(S, 'gradient', 'גרדיאנט', 'toggle'),
@@ -643,65 +646,151 @@ $('#btnSavePreset').onclick = () => {
 };
 
 // ================== FONTS ==================
-const BUILTIN_FONTS = ['Heebo', 'Rubik', 'Assistant', 'Secular One', 'Varela Round', 'Suez One', 'Frank Ruhl Libre', 'Karantina', 'Amatic SC', 'Bellefair', 'Noto Sans Hebrew', 'Alef', 'Fredoka', 'Bona Nova', 'Arial', 'David', 'Tahoma', 'Segoe UI'];
-let userFonts = [], localFonts = [];
+const BUILTIN = {
+  'Heebo': [300, 400, 500, 700, 800, 900], 'Rubik': [400, 500, 700, 900], 'Assistant': [400, 600, 800], 'Secular One': [400], 'Varela Round': [400],
+  'Suez One': [400], 'Frank Ruhl Libre': [400, 700, 900], 'Karantina': [400, 700], 'Amatic SC': [400, 700], 'Bellefair': [400],
+  'Noto Sans Hebrew': [400, 700, 900], 'Alef': [400, 700], 'Fredoka': [400, 600, 700], 'Bona Nova': [400, 700],
+  'Arial': [400, 700], 'David': [400, 700], 'Tahoma': [400, 700], 'Segoe UI': [300, 400, 600, 700, 900],
+};
+const BUILTIN_FONTS = Object.keys(BUILTIN);
+let userFams = new Map(); // משפחה -> [{key, weight, style, file, size}]
+let localFonts = [], localFilter = '';
+const faceKey = m => `${m.family}|${m.weight}|${m.style}`;
+async function registerFace(m, data) {
+  const ff = new FontFace(m.family, data, { weight: String(m.weight), style: m.style });
+  await ff.load(); document.fonts.add(ff);
+}
+function addToFams(m, size) {
+  const arr = userFams.get(m.family) || [];
+  const i = arr.findIndex(x => x.weight === m.weight && x.style === m.style);
+  const rec = { key: faceKey(m), weight: m.weight, style: m.style, file: m.file, size };
+  if (i >= 0) arr[i] = rec; else arr.push(rec);
+  arr.sort((a, b) => a.weight - b.weight || (a.style > b.style ? 1 : -1));
+  userFams.set(m.family, arr);
+}
 async function loadStoredFonts() {
   const list = await store.allFonts().catch(() => []);
-  for (const f of list) await registerFont(f.name, f.data).catch(e => console.warn('font', f.name, e));
-  userFonts = list.map(f => ({ name: f.name, file: f.file, size: f.data.byteLength }));
-  renderFontList();
-}
-async function registerFont(name, data) {
-  const ff = new FontFace(name, data);
-  await ff.load(); document.fonts.add(ff);
-  // מאפשר לגופן להופיע בכל משקל (הגופן בקובץ הוא המשקל עצמו)
-  for (const w of ['100', '200', '300', '500', '600', '700', '800', '900']) {
-    try { const f2 = new FontFace(name, data, { weight: w }); f2.load().then(x => document.fonts.add(x)).catch(() => {}); } catch {}
+  for (const f of list) {
+    try {
+      if (!f.family) { // רשומה מגרסה קודמת – קוראים מחדש מתוך הקובץ
+        const m = parseFont(f.data, f.file || f.name);
+        await store.delFont(f.name);
+        Object.assign(f, m, { name: faceKey(m) });
+        await store.putFont(f);
+      }
+      await registerFace(f, f.data); addToFams(f, f.data.byteLength);
+    } catch (e) { console.warn('font', f.name, e); }
   }
+  renderFontList(); syncControls();
 }
 $('#fontInput').onchange = e => { addFonts([...e.target.files]); e.target.value = ''; };
 async function addFonts(files) {
-  let ok = 0, last;
+  const items = [];
   for (const f of files) {
     try {
-      const data = await f.arrayBuffer();
-      let name = f.name.replace(/\.(ttf|otf|woff2?)$/i, '').replace(/[_]+/g, ' ').trim();
-      await registerFont(name, data);
-      await store.putFont({ name, file: f.name, data });
-      userFonts = userFonts.filter(x => x.name !== name); userFonts.push({ name, file: f.name, size: data.byteLength });
-      ok++; last = name;
-    } catch (err) { console.error(err); toast('לא ניתן לטעון את ' + f.name + ' – הקובץ פגום או לא נתמך'); }
+      if (/\.zip$/i.test(f.name) || (f.type || '').includes('zip')) { for (const z of await unzip(await f.arrayBuffer())) if (/\.(ttf|otf|woff2?|ttc)$/i.test(z.name)) items.push(z); }
+      else items.push({ name: f.name, data: await f.arrayBuffer() });
+    } catch (e) { toast('לא ניתן לפתוח את ' + f.name); }
   }
-  if (ok) { P.style.fontFamily = last; rememberStyle(); commit(true); syncControls(); renderFontList(); toast(`נוספו ${ok} גופנים ✔ – "${last}" נבחר`); }
+  const metas = [];
+  for (const it of items) { try { metas.push({ ...parseFont(it.data, it.name), file: it.name, data: it.data }); } catch (e) { console.warn(e); toast('קובץ לא נתמך: ' + it.name); } }
+  mergeLetterSuffix(metas, [...userFams.keys()]);
+  const fams = new Set(); let ok = 0;
+  for (const m of metas) {
+    try {
+      await registerFace(m, m.data);
+      await store.putFont({ name: faceKey(m), family: m.family, weight: m.weight, style: m.style, file: m.file, data: m.data });
+      addToFams(m, m.data.byteLength); fams.add(m.family); ok++;
+    } catch (err) { console.error(err); toast('לא ניתן לטעון את ' + m.file + ' – הקובץ פגום או לא נתמך'); }
+  }
+  if (ok) {
+    const last = [...fams].pop();
+    P.style.fontFamily = last; P.style.fontWeight = nearestWeight(last, P.style.fontWeight);
+    rememberStyle(); commit(true); syncControls(); renderFontList(); ensureFont();
+    toast(`נוספו ${fams.size} משפחות (${ok} משקלים) ✔`);
+  }
+  return ok;
+}
+function weightsOf(fam) {
+  if (userFams.has(fam)) return [...new Set(userFams.get(fam).map(x => x.weight))];
+  return BUILTIN[fam] || [100, 200, 300, 400, 500, 600, 700, 800, 900];
+}
+function nearestWeight(fam, w) {
+  const ws = weightsOf(fam); if (ws.includes(w)) return w;
+  return ws.reduce((a, b) => Math.abs(b - w) < Math.abs(a - w) ? b : a, ws[0]);
+}
+function setFamily(fam, weight) {
+  P.style.fontFamily = fam; P.style.fontWeight = weight ?? nearestWeight(fam, P.style.fontWeight);
+  rememberStyle(); commit(true); syncControls(); ensureFont(); renderFontList();
 }
 $('#btnLocalFonts').onclick = async () => {
-  if (!window.queryLocalFonts) return toast('זמין רק ב-Chrome/Edge במחשב. אפשר להעלות קובץ גופן במקום.');
+  if (!window.queryLocalFonts) return toast('זמין רק ב-Chrome/Edge במחשב. בטלפון – העלה קבצי גופן או ZIP.');
   try {
     const fonts = await window.queryLocalFonts();
-    localFonts = [...new Set(fonts.map(f => f.family))].sort();
-    renderFontList(); syncControls(); toast(`נמצאו ${localFonts.length} גופנים במחשב`);
+    const m = new Map(); for (const f of fonts) { if (!m.has(f.family)) m.set(f.family, []); m.get(f.family).push(f); }
+    localFonts = [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    renderFontList(); toast(`נמצאו ${localFonts.length} משפחות במחשב – לחץ ⬆ ייבא כדי להוסיף משפחה עם כל המשקלים`);
   } catch (e) { toast('אין הרשאה לגופנים: ' + e.message); }
 };
+async function importLocal(faces) {
+  const files = [];
+  for (const f of faces) { try { const b = await f.blob(); files.push(new File([b], f.postscriptName + '.otf')); } catch {} }
+  await addFonts(files);
+}
 function fillFontSelect(sel) {
   sel.innerHTML = '';
   const grp = (label, arr) => { if (!arr.length) return; const g = h('optgroup', { label }); arr.forEach(n => g.append(h('option', { value: n }, n))); sel.append(g); };
-  grp('הגופנים שלי', userFonts.map(f => f.name));
+  grp('הגופנים שלי', [...userFams.keys()].sort());
   grp('גופנים עבריים', BUILTIN_FONTS);
-  grp('מותקנים במחשב', localFonts);
   if (![...sel.options].some(o => o.value === P.style.fontFamily)) sel.prepend(h('option', { value: P.style.fontFamily }, P.style.fontFamily));
+}
+function fillWeightSelect(sel) {
+  sel.innerHTML = '';
+  for (const w of weightsOf(P.style.fontFamily)) sel.append(h('option', { value: w }, `${WEIGHT_NAMES[w] || w} · ${w}`));
+  if (![...sel.options].some(o => +o.value === +P.style.fontWeight)) sel.append(h('option', { value: P.style.fontWeight }, `${P.style.fontWeight} (מדומה)`));
+  sel.value = P.style.fontWeight;
 }
 function renderFontList() {
   const el = $('#fontList'); el.innerHTML = '';
-  const item = (name, sub, del) => {
-    const it = h('div', { class: 'font-item' + (P.style.fontFamily === name ? ' cur' : '') },
-      h('div', { class: 'sample', style: `font-family:"${name}"` }, 'שלום עולם 123', h('small', {}, name + (sub ? ' · ' + sub : ''))));
-    if (del) it.append(h('button', { class: 'btn small danger', onclick: async e => { e.stopPropagation(); await store.delFont(name); userFonts = userFonts.filter(f => f.name !== name); renderFontList(); syncControls(); } }, '🗑'));
-    it.onclick = () => { P.style.fontFamily = name; rememberStyle(); commit(true); syncControls(); ensureFont(); renderFontList(); };
+  const fam = (name, faces, del) => {
+    const ws = faces || weightsOf(name).map(w => ({ weight: w, style: 'normal' }));
+    const cur = P.style.fontFamily === name;
+    const chips = h('div', { class: 'wchips' }, ...ws.map(f => {
+      const c = h('button', { class: 'wchip' + (cur && +P.style.fontWeight === f.weight ? ' on' : ''), style: `font-family:"${name}";font-weight:${f.weight};font-style:${f.style}`, title: f.file || '' },
+        (WEIGHT_NAMES[f.weight] || f.weight) + (f.style === 'italic' ? ' נטוי' : ''));
+      c.onclick = e => { e.stopPropagation(); P.style.italic = f.style === 'italic'; setFamily(name, f.weight); };
+      return c;
+    }));
+    const heavy = Math.max(...ws.map(f => f.weight));
+    const it = h('div', { class: 'font-item' + (cur ? ' cur' : '') },
+      h('div', { class: 'grow' },
+        h('div', { class: 'sample', style: `font-family:"${name}";font-weight:${cur ? P.style.fontWeight : heavy}` }, 'כתוביות מטורפות'),
+        h('small', {}, `${name} · ${ws.length} ${ws.length === 1 ? 'משקל' : 'משקלים'}`), chips));
+    if (del) it.append(h('button', { class: 'btn small danger', title: 'מחק את כל המשפחה', onclick: async e => {
+      e.stopPropagation(); if (!confirm(`למחוק את "${name}" עם כל המשקלים?`)) return;
+      for (const f of faces) await store.delFont(f.key);
+      userFams.delete(name); renderFontList(); syncControls();
+    } }, '🗑'));
+    it.onclick = () => setFamily(name);
     return it;
   };
-  if (userFonts.length) { el.append(h('div', { class: 'group-title' }, 'הגופנים שלי')); userFonts.forEach(f => el.append(item(f.name, (f.size / 1024).toFixed(0) + 'KB', true))); }
-  el.append(h('div', { class: 'group-title' }, 'גופנים עבריים מובנים')); BUILTIN_FONTS.forEach(n => el.append(item(n)));
-  if (localFonts.length) { el.append(h('div', { class: 'group-title' }, 'מותקנים במחשב')); localFonts.forEach(n => el.append(item(n))); }
+  if (userFams.size) { el.append(h('div', { class: 'group-title' }, `הגופנים שלי (${userFams.size})`)); [...userFams.keys()].sort().forEach(n => el.append(fam(n, userFams.get(n), true))); }
+  el.append(h('div', { class: 'group-title' }, 'גופנים עבריים מובנים')); BUILTIN_FONTS.forEach(n => el.append(fam(n)));
+  if (localFonts.length) {
+    el.append(h('div', { class: 'group-title' }, `מותקנים במחשב (${localFonts.length})`));
+    const q = h('input', { placeholder: 'חיפוש גופן במחשב…', value: localFilter });
+    const box = h('div', { class: 'font-list' });
+    const draw = () => {
+      box.innerHTML = '';
+      localFonts.filter(([n]) => !localFilter || n.toLowerCase().includes(localFilter.toLowerCase())).slice(0, 80).forEach(([n, faces]) => {
+        box.append(h('div', { class: 'font-item' },
+          h('div', { class: 'grow' }, h('div', { class: 'sample', style: `font-family:"${n}"` }, 'כתוביות מטורפות'), h('small', {}, `${n} · ${faces.length} קבצים`)),
+          h('button', { class: 'btn small', title: 'ייבא לאפליקציה עם כל המשקלים', onclick: () => importLocal(faces) }, '⬆ ייבא')));
+      });
+    };
+    q.oninput = () => { localFilter = q.value; draw(); };
+    el.append(q, box); draw();
+  }
 }
 function ensureFont() {
   document.fonts.load(fontString(P.style, 40), 'אבג abc').then(() => { needDraw = true; }).catch(() => {});
@@ -937,4 +1026,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
     if (r) { const b = await r.blob(); const name = r.headers.get('x-name') || 'video.mp4'; await c.delete('shared-video'); history.replaceState(null, '', location.pathname); loadFile(new File([b], decodeURIComponent(name), { type: b.type || 'video/mp4' })); }
   } catch (e) { console.warn(e); }
 })();
-window.__kt = { P, seek, video, loadFile, renderCaps: () => renderCaps(), commit };
+window.__kt = { P, seek, video, loadFile, renderCaps: () => renderCaps(), commit, addFonts, userFams: () => userFams };

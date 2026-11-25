@@ -1,6 +1,6 @@
 // Service worker: עבודה אופליין + קבלת סרטונים ששותפו מהגלריה
-const CACHE = 'kt-v2';
-const SHELL = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/renderer.js', 'js/transcribe.js', 'js/exporter.js', 'js/storage.js', 'js/vendor/mediabunny.min.mjs', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
+const CACHE = 'kt-v3';
+const SHELL = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/renderer.js', 'js/transcribe.js', 'js/exporter.js', 'js/storage.js', 'js/fontmeta.js', 'js/vendor/mediabunny.min.mjs', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== 'kt-share' && k !== 'kt-fonts').map(k => caches.delete(k)))).then(() => self.clients.claim())); });

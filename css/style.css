@@ -141,3 +141,7 @@ dialog::backdrop{background:#000a}
   .tabs{top:calc(58px + 42vh + 120px);position:static}
   .preset-grid{grid-template-columns:repeat(3,1fr)}
 }
+.wchips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.wchip{background:#1e222b;border:1px solid var(--line);border-radius:7px;padding:3px 8px;font-size:13px;cursor:pointer;color:var(--text)}
+.wchip.on{background:var(--accent);color:#04140a;border-color:var(--accent)}
+.font-item .sample{font-size:24px}
