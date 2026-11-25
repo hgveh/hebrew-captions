@@ -1,5 +1,5 @@
 // Service worker: עבודה אופליין + קבלת סרטונים ששותפו מהגלריה
-const CACHE = 'kt-v8';
+const CACHE = 'kt-v9';
 const SHELL = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/renderer.js', 'js/transcribe.js', 'js/exporter.js', 'js/storage.js', 'js/fontmeta.js', 'js/vendor/mediabunny.min.mjs', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
@@ -27,5 +27,6 @@ self.addEventListener('fetch', e => {
   }
   if (url.origin !== location.origin) return;
   // רשת קודם (כדי לקבל עדכונים), מטמון כגיבוי
-  e.respondWith(fetch(e.request).then(r => { if (r.ok) { const cp = r.clone(); caches.open(CACHE).then(c => c.put(e.request, cp)); } return r; }).catch(() => caches.match(e.request)));
+  // cache:'no-cache' = תמיד בודק מול השרת (בקשה מותנית וזולה), כדי שלא יתערבבו קבצים ישנים וחדשים מהמטמון של הדפדפן
+  e.respondWith(fetch(e.request, { cache: 'no-cache' }).then(r => { if (r.ok) { const cp = r.clone(); caches.open(CACHE).then(c => c.put(e.request, cp)); } return r; }).catch(() => caches.match(e.request)));
 });
