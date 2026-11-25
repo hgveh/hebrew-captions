@@ -86,6 +86,14 @@ export function fontString(st, px) {
   return `${st.italic ? 'italic ' : ''}${st.fontWeight} ${Math.max(1, px).toFixed(2)}px "${st.fontFamily}", "Heebo", sans-serif`;
 }
 
+// סגנון מילה = סגנון הכתובית + שינויים שנעשו רק למילה הזו
+export function wordStyle(st, w) {
+  if (!w.o) return st;
+  const s = { ...st };
+  for (const k in w.o) if (w.o[k] !== '' && w.o[k] != null) s[k] = w.o[k];
+  return s;
+}
+
 export function effStyle(project, cap) {
   const s = { ...project.style };
   if (cap && cap.o) for (const k in cap.o) if (cap.o[k] !== '' && cap.o[k] != null) s[k] = cap.o[k];
@@ -101,12 +109,15 @@ function layout(ctx, words, st, W) {
   // מקום למילה שגדלה כשהיא פעילה – שלא תעלה על השכנות
   if (st.wordAnim === 'scale' || st.wordAnim === 'box') space += fs * Math.max(0, (st.wordAnim === 'box' ? 0.18 : 0) + (st.activeScale - 1) * (st.wordAnim === 'scale' ? 1.6 : 0));
   const items = words.map((w, i) => {
-    let txt = st.uppercase ? w.t.toUpperCase() : w.t;
-    const sc = w.emph ? st.emphScale : 1;
-    ctx.font = fontString(st, fs * sc);
-    return { i, w, txt, sc, width: ctx.measureText(txt).width };
+    const ws = wordStyle(st, w);
+    let txt = ws.uppercase ? w.t.toUpperCase() : w.t;
+    const wfs = ws.fontSize / 100 * W * (w.emph ? ws.emphScale : 1);
+    ctx.font = fontString(ws, wfs);
+    try { ctx.letterSpacing = (ws.letterSpacing / 100 * wfs) + 'px'; } catch {}
+    return { i, w, ws, txt, fs: wfs, width: ctx.measureText(txt).width };
   });
   ctx.font = fontString(st, fs);
+  try { ctx.letterSpacing = (st.letterSpacing / 100 * fs) + 'px'; } catch {}
   const maxW = st.maxWidth / 100 * W;
   // שבירה חמדנית
   let lines = []; let cur = []; let cw = 0;
@@ -141,6 +152,9 @@ function layout(ctx, words, st, W) {
   }
   const rtl = words.some(w => HEB.test(w.t));
   const lh = fs * st.lineHeight;
+  const lhs = lines.map(ln => Math.max(lh, ...ln.map(it => it.fs * st.lineHeight)));
+  const total = lhs.reduce((a, b) => a + b, 0);
+  let yAcc = -total / 2;
   const out = lines.map((ln, li) => {
     const width = ln.reduce((s, it, k) => s + it.width + (k ? space : 0), 0);
     let x = rtl ? width / 2 : -width / 2;
@@ -149,9 +163,10 @@ function layout(ctx, words, st, W) {
       if (rtl) { left = x - it.width; x = left - space; } else { left = x; x += it.width + space; }
       return { ...it, left, cx: left + it.width / 2 };
     });
-    return { items: placed, width, y: (li - (lines.length - 1) / 2) * lh };
+    const y = yAcc + lhs[li] / 2; yAcc += lhs[li];
+    return { items: placed, width, y, lh: lhs[li] };
   });
-  return { lines: out, fs, lh, space, rtl, height: lines.length * lh, width: Math.max(0, ...out.map(l => l.width)) };
+  return { lines: out, fs, lh, space, rtl, height: total, width: Math.max(0, ...out.map(l => l.width)) };
 }
 
 function rr(ctx, x, y, w, h, r) {
@@ -198,7 +213,7 @@ export function drawCaption(ctx, W, H, t, cap, project, opts = {}) {
   }
   if (st.bgMode === 'line') {
     ctx.fillStyle = hexA(st.bgColor, st.bgOpacity);
-    for (const ln of L.lines) { rr(ctx, -ln.width / 2 - pad, ln.y - L.lh / 2 - pad * 0.15, ln.width + pad * 2, L.lh + pad * 0.3, rad); ctx.fill(); }
+    for (const ln of L.lines) { rr(ctx, -ln.width / 2 - pad, ln.y - ln.lh / 2 - pad * 0.15, ln.width + pad * 2, ln.lh + pad * 0.3, rad); ctx.fill(); }
   }
 
   // תווים למכונת כתיבה
@@ -209,9 +224,9 @@ export function drawCaption(ctx, W, H, t, cap, project, opts = {}) {
 
   for (const ln of L.lines) {
     for (const it of ln.items) {
-      const w = it.w;
+      const w = it.w, ws = it.ws;
       const idx = order++;
-      let alpha = 1, scale = it.sc, dy = 0, color = w.emph ? st.emphColor : null, box = false, underline = 0, glow = 0, karaFill = -1;
+      let alpha = 1, scale = 1, dy = 0, color = w.emph ? ws.emphColor : null, box = false, underline = 0, glow = 0, karaFill = -1;
       const spoken = t >= w.s, active = t >= w.s && t < w.e;
       const wp = clamp((t - w.s) / Math.max(0.05, w.e - w.s));
 
@@ -229,13 +244,13 @@ export function drawCaption(ctx, W, H, t, cap, project, opts = {}) {
       }
 
       switch (st.wordAnim) {
-        case 'highlight': if (active) color = st.highlightColor; break;
-        case 'karaoke': if (active) karaFill = wp; else if (spoken) color = st.highlightColor; break;
+        case 'highlight': if (active) color = ws.highlightColor; break;
+        case 'karaoke': if (active) karaFill = wp; else if (spoken) color = ws.highlightColor; break;
         case 'box': if (active) box = true; break;
-        case 'scale': if (active) { const k = eOutBack(clamp(wp * 4)); scale *= lerp(1, st.activeScale, k); color = st.highlightColor; } break;
-        case 'bounceWord': if (active) { dy -= Math.sin(clamp(wp * 2) * Math.PI) * fs * 0.25; color = st.highlightColor; } break;
+        case 'scale': if (active) { const k = eOutBack(clamp(wp * 4)); scale *= lerp(1, st.activeScale, k); color = ws.highlightColor; } break;
+        case 'bounceWord': if (active) { dy -= Math.sin(clamp(wp * 2) * Math.PI) * fs * 0.25; color = ws.highlightColor; } break;
         case 'reveal': if (!spoken) alpha = 0; else { const k = clamp((t - w.s) / 0.15); scale *= lerp(0.6, 1, eOutBack(k)); alpha *= k; } break;
-        case 'dim': if (!spoken) alpha *= 0.35; else if (active) color = st.highlightColor; break;
+        case 'dim': if (!spoken) alpha *= 0.35; else if (active) color = ws.highlightColor; break;
         case 'underline': if (active) underline = eOutCubic(clamp(wp * 3)); break;
         case 'oneWord': { const k = clamp((t - w.s) / 0.12); scale *= lerp(0.7, 1, eOutBack(k)); break; }
         case 'glow': if (active) glow = 1; break;
@@ -252,25 +267,27 @@ export function drawCaption(ctx, W, H, t, cap, project, opts = {}) {
 
       ctx.save();
       ctx.translate(it.cx, ln.y + dy);
-      if (scale !== 1) ctx.scale(scale / it.sc, scale / it.sc);
+      if (scale !== 1) ctx.scale(scale, scale);
       ctx.globalAlpha = T.alpha * alpha;
-      const wfs = fs * it.sc;
-      ctx.font = fontString(st, wfs);
+      const wfs = it.fs;
+      ctx.font = fontString(ws, wfs);
+      try { ctx.letterSpacing = (ws.letterSpacing / 100 * wfs) + 'px'; } catch {}
       let left = -it.width / 2;
       if (txt !== it.txt && L.rtl) left = it.width / 2 - ctx.measureText(txt).width;
 
       if (box) {
         const bp = wfs * 0.14;
         ctx.save(); ctx.shadowColor = 'transparent';
-        ctx.fillStyle = st.highlightColor;
-        rr(ctx, left - bp * 1.4, -L.lh / 2 + bp * 0.2, it.width + bp * 2.8, L.lh - bp * 0.4, wfs * 0.18); ctx.fill();
+        ctx.fillStyle = ws.highlightColor;
+        rr(ctx, left - bp * 1.4, -ln.lh / 2 + bp * 0.2, it.width + bp * 2.8, ln.lh - bp * 0.4, wfs * 0.18); ctx.fill();
         ctx.restore();
       }
-      const fillCol = box ? contrast(st.highlightColor) : (color || st.color);
+      const fillCol = box ? contrast(ws.highlightColor) : (color || ws.color);
       const opt = { glitch: T.glitch, glow, karaFill, partial: txt !== it.txt };
-      drawText(ctx, txt, left, it.width, wfs, st, fillCol, opt, box);
+      drawText(ctx, txt, left, it.width, wfs, ws, fillCol, opt, box);
+      if (opts.selWord === w) { ctx.save(); ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.strokeStyle = '#7c5cff'; ctx.lineWidth = Math.max(2, wfs * 0.05); ctx.setLineDash([wfs * 0.15, wfs * 0.1]); rr(ctx, left - wfs * 0.12, -ln.lh / 2, it.width + wfs * 0.24, ln.lh, wfs * 0.15); ctx.stroke(); ctx.restore(); }
       if (underline > 0) {
-        ctx.fillStyle = st.highlightColor; ctx.shadowColor = 'transparent';
+        ctx.fillStyle = ws.highlightColor; ctx.shadowColor = 'transparent';
         const uw = it.width * underline;
         rr(ctx, L.rtl ? left + it.width - uw : left, wfs * 0.5, uw, wfs * 0.09, wfs * 0.05); ctx.fill();
       }
@@ -382,12 +399,12 @@ export function frameGeom(sw, sh, W, H, frame) {
 }
 
 // ---------- פריים מלא ----------
-export function renderFrame(ctx, W, H, t, project, src, sw, sh, logoImg) {
+export function renderFrame(ctx, W, H, t, project, src, sw, sh, logoImg, opts = {}) {
   drawSource(ctx, src, sw, sh, W, H, project.frame);
   const caps = project.captions;
   for (let i = 0; i < caps.length; i++) {
     const c = caps[i];
-    if (t >= c.s && t < c.e) drawCaption(ctx, W, H, t, c, project);
+    if (t >= c.s && t < c.e) drawCaption(ctx, W, H, t, c, project, opts);
   }
   const x = project.extras || {};
   if (x.progressBar && project.duration) {
@@ -410,6 +427,15 @@ export function renderFrame(ctx, W, H, t, project, src, sw, sh, logoImg) {
 }
 
 // לבדיקת לחיצה על כתובית
+export function wordBoxes(ctx, W, H, cap, project) {
+  const st = effStyle(project, cap);
+  if (!cap.words?.length || st.wordAnim === 'oneWord') return [];
+  const L = layout(ctx, cap.words, st, W);
+  const cx = st.posX * W, cy = st.posY * H, out = [];
+  for (const ln of L.lines) for (const it of ln.items) out.push({ w: it.w, x: cx + it.left, y: cy + ln.y - ln.lh / 2, wd: it.width, h: ln.lh });
+  return out;
+}
+
 export function captionBounds(ctx, W, H, cap, project) {
   const st = effStyle(project, cap);
   const L = layout(ctx, cap.words, st, W);

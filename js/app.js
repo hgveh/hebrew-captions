@@ -1,4 +1,4 @@
-import { DEFAULT_STYLE, ANIMS_IN, ANIMS_OUT, WORD_ANIMS, renderFrame, drawCaption, frameGeom, captionBounds, fontString } from './renderer.js';
+import { DEFAULT_STYLE, ANIMS_IN, ANIMS_OUT, WORD_ANIMS, renderFrame, drawCaption, frameGeom, captionBounds, wordBoxes, effStyle, fontString } from './renderer.js';
 import { PROVIDERS, getSettings, saveSettings, transcribe, segment, spreadWords, newId, FILLERS } from './transcribe.js';
 import { exportVideo, planStatusParts, statusBitrate, supportsExport } from './exporter.js';
 import * as store from './storage.js';
@@ -112,25 +112,33 @@ function sizeCanvas() {
 }
 function draw() {
   const t = video.currentTime;
-  renderFrame(ctx, cv.width, cv.height, t, P, video.readyState >= 2 ? video : null, video.videoWidth, video.videoHeight, logoImg);
-  // מסגרת בחירה
-  const sel = P.captions.find(c => c.id === selId);
-  if (sel && video.paused && t >= sel.s && t < sel.e) {
+  const sw = selWord();
+  renderFrame(ctx, cv.width, cv.height, t, P, video.readyState >= 2 ? video : null, video.videoWidth, video.videoHeight, logoImg, { selWord: video.paused ? sw : null });
+  // מסגרת בחירה של הכתובית
+  const sel = selCap();
+  if (sel && !sw && video.paused && t >= sel.s && t < sel.e) {
     const b = captionBounds(ctx, cv.width, cv.height, sel, P);
     ctx.save(); ctx.strokeStyle = '#7c5cff'; ctx.setLineDash([6, 4]); ctx.lineWidth = 2;
     ctx.strokeRect(b.x - 8, b.y - 6, b.w + 16, b.h + 12); ctx.restore();
   }
   if (dragging && snapX) { ctx.save(); ctx.strokeStyle = '#25d366aa'; ctx.beginPath(); ctx.moveTo(cv.width / 2, 0); ctx.lineTo(cv.width / 2, cv.height); ctx.stroke(); ctx.restore(); }
 }
-let lastActive = null;
+let lastActive = null, stopEach = localStorage.getItem('kt_stopEach') === '1', stoppedFor = null;
 function loop() {
   if (!video.paused || needDraw) {
+    const t = video.currentTime;
+    // מצב הגהה: עוצר בסוף כל כתובית
+    if (stopEach && !video.paused && lastActive && lastActive !== stoppedFor) {
+      const c = P.captions.find(x => x.id === lastActive);
+      if (c && t >= c.e - 0.04) { video.pause(); stoppedFor = c.id; video.currentTime = Math.max(c.s, c.e - 0.05); }
+    }
     needDraw = false; draw(); drawTimeline();
     $('#timeLabel').textContent = `${fmt(video.currentTime)} / ${fmt(P.duration)}`;
     const act = P.captions.find(c => video.currentTime >= c.s && video.currentTime < c.e);
     const id = act?.id || null;
     if (id !== lastActive) {
-      $$('.cap.active').forEach(e => e.classList.remove('active'));
+      if (id && id !== stoppedFor) stoppedFor = null;
+      $$('.cap.active').forEach(e => e.classList.toggle('active', false));
       if (id) { const el = document.querySelector(`.cap[data-id="${id}"]`); if (el) { el.classList.add('active'); if (!video.paused && !el.contains(document.activeElement)) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } }
       lastActive = id;
     }
@@ -140,37 +148,56 @@ function loop() {
 requestAnimationFrame(loop);
 video.addEventListener('seeked', () => needDraw = true);
 video.addEventListener('loadeddata', () => needDraw = true);
-video.addEventListener('play', () => $('#btnPlay').textContent = '❚❚');
+video.addEventListener('play', () => { $('#btnPlay').textContent = '❚❚'; const ae = document.activeElement; if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT')) ae.blur(); });
 video.addEventListener('pause', () => { $('#btnPlay').textContent = '▶'; needDraw = true; });
 document.fonts.addEventListener?.('loadingdone', () => { needDraw = true; drawPresets(); });
 $('#btnPlay').onclick = togglePlay;
 function togglePlay() { if (video.paused) { if (video.currentTime >= P.duration - 0.05) video.currentTime = 0; video.play(); } else video.pause(); }
 $('#btnMute').onclick = () => { video.muted = !video.muted; $('#btnMute').textContent = video.muted ? '🔇' : '🔊'; };
+const stopBtn = $('#btnStopEach');
+const syncStop = () => { stopBtn.classList.toggle('on', stopEach); stopBtn.title = stopEach ? 'מצב הגהה פעיל: עוצר בסוף כל כתובית' : 'עצור בסוף כל כתובית (לבדיקה ועריכה)'; };
+stopBtn.onclick = () => { stopEach = !stopEach; localStorage.setItem('kt_stopEach', stopEach ? '1' : '0'); syncStop(); toast(stopEach ? '⏸ הסרטון ייעצר בסוף כל כתובית – לחץ ▶ להמשך' : 'ניגון רציף'); };
+syncStop();
 function seek(t) { video.currentTime = Math.max(0, Math.min(P.duration, t)); needDraw = true; }
 
-// גרירה על התצוגה
+// ---------- בחירת כתובית / מילה ----------
+let selWordIdx = -1;
+const selCap = () => P.captions.find(c => c.id === selId) || null;
+const selWord = () => { const c = selCap(); return c && selWordIdx >= 0 ? c.words[selWordIdx] || null : null; };
+function selectWord(c, i, { scroll = true, seekTo = true } = {}) {
+  video.pause();
+  selId = c.id; selWordIdx = i;
+  if (seekTo && c.words[i]) seek(Math.min(c.e - 0.02, Math.max(c.s, c.words[i].s + 0.01)));
+  renderCaps(); syncScope();
+  if (scroll) setTimeout(() => document.querySelector(`.cap[data-id="${c.id}"] .word-editor input`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 30);
+}
+function clearWord() { if (selWordIdx < 0) return; selWordIdx = -1; if (scope === 'word') scope = 'cap'; renderCaps(); syncScope(); }
+
+// גרירה / הקשה על התצוגה
 $$('.drag-mode .chip').forEach(b => b.onclick = () => { dragMode = b.dataset.drag; $$('.drag-mode .chip').forEach(x => x.classList.toggle('active', x === b)); });
 let dragging = null, snapX = false;
+const cvPos = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * cv.width, (e.clientY - r.top) / r.height * cv.height]; };
 cv.addEventListener('pointerdown', e => {
-  const r = cv.getBoundingClientRect();
-  const x = (e.clientX - r.left) / r.width * cv.width, y = (e.clientY - r.top) / r.height * cv.height;
+  const [x, y] = cvPos(e);
   cv.setPointerCapture(e.pointerId);
   const t = video.currentTime;
   const act = P.captions.find(c => t >= c.s && t < c.e);
   if (dragMode === 'captions') {
-    if (act) { selId = act.id; highlightSel(); }
-    const target = act && act.o && act.o.posY != null && act.o.posY !== '' ? act.o : P.style;
-    dragging = { mode: 'cap', x, y, target, px: target.posX ?? P.style.posX, py: target.posY ?? P.style.posY };
+    const own = act && (scope !== 'all' || (act.o && act.o.posY != null && act.o.posY !== ''));
+    const target = own ? (act.o || (act.o = {})) : P.style;
+    const eff = act ? effStyle(P, act) : P.style;
+    dragging = { mode: 'cap', x, y, target, px: eff.posX, py: eff.posY, act, moved: false };
   } else {
     const g = frameGeom(video.videoWidth, video.videoHeight, cv.width, cv.height, P.frame);
-    dragging = { mode: 'frame', x, y, cx: P.frame.cx, cy: P.frame.cy, g };
+    dragging = { mode: 'frame', x, y, cx: P.frame.cx, cy: P.frame.cy, g, moved: false };
   }
 });
 cv.addEventListener('pointermove', e => {
   if (!dragging) return;
-  const r = cv.getBoundingClientRect();
-  const x = (e.clientX - r.left) / r.width * cv.width, y = (e.clientY - r.top) / r.height * cv.height;
+  const [x, y] = cvPos(e);
   const dx = x - dragging.x, dy = y - dragging.y;
+  if (!dragging.moved && Math.hypot(dx, dy) < cv.width * 0.015) return; // הקשה – לא גרירה
+  dragging.moved = true;
   if (dragging.mode === 'cap') {
     let nx = dragging.px + dx / cv.width, ny = dragging.py + dy / cv.height;
     snapX = Math.abs(nx - 0.5) < 0.025; if (snapX) nx = 0.5;
@@ -183,7 +210,22 @@ cv.addEventListener('pointermove', e => {
   }
   needDraw = true;
 });
-const endDrag = () => { if (dragging) { dragging = null; snapX = false; commit(); syncControls(); } };
+const endDrag = e => {
+  if (!dragging) return;
+  const d = dragging; dragging = null; snapX = false;
+  if (d.moved) { commit(); syncControls(); return; }
+  // הקשה: בזמן ניגון → עצירה. בעצירה → בחירת המילה שנלחצה
+  if (!video.paused) { video.pause(); return; }
+  if (e && e.type === 'pointercancel') return;
+  const t = video.currentTime;
+  for (const c of P.captions) {
+    if (!(t >= c.s && t < c.e)) continue;
+    const hit = wordBoxes(ctx, cv.width, cv.height, c, P).find(b => d.x >= b.x - 6 && d.x <= b.x + b.wd + 6 && d.y >= b.y && d.y <= b.y + b.h);
+    if (hit) { selectWord(c, c.words.indexOf(hit.w)); return; }
+    selId = c.id; selWordIdx = -1; if (scope === 'word') scope = 'cap'; renderCaps(); syncScope(); highlightSel(true); return;
+  }
+  clearWord();
+};
 cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
 cv.addEventListener('dblclick', () => togglePlay());
 
@@ -286,7 +328,7 @@ function setCapText(cap, text) {
     const old = cap.words;
     const nw = spreadWords(toks.join(' '), cap.s, cap.e);
     // שומרים הדגשות לפי טקסט זהה
-    nw.forEach(w => { const o = old.find(x => x.t === w.t); if (o?.emph) w.emph = true; });
+    nw.forEach(w => { const o = old.find(x => x.t === w.t); if (o?.emph) w.emph = true; if (o?.o) w.o = clone(o.o); });
     cap.words = nw;
   }
 }
@@ -314,7 +356,12 @@ function capCard(c, idx) {
   const ta = h('textarea', { rows: 1, dir: 'auto' }); ta.value = capText(c);
   const fit = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
   ta.oninput = () => { setCapText(c, ta.value); fit(); renderWords(); commit(); };
-  ta.onfocus = () => { selId = c.id; highlightSel(); if (video.paused) seek(c.s + 0.01); };
+  ta.onfocus = () => {
+    video.pause();
+    if (selId !== c.id) { selId = c.id; selWordIdx = -1; if (scope === 'word') scope = 'cap'; syncScope(); }
+    highlightSel();
+    if (video.currentTime < c.s || video.currentTime >= c.e) seek(c.s + 0.01);
+  };
   ta.onkeydown = e => {
     if (e.key === 'Enter' && !e.shiftKey) { // אנטר מפצל בנקודת הסמן
       e.preventDefault();
@@ -326,14 +373,15 @@ function capCard(c, idx) {
   const words = h('div', { class: 'words' });
   const renderWords = () => {
     words.innerHTML = '';
-    c.words.forEach(w => {
-      const chip = h('span', { class: 'word' + (w.emph ? ' emph' : ''), title: `${fmtS(w.s)}–${fmtS(w.e)} · לחיצה = הדגשה, לחיצה כפולה = קפוץ` }, w.t);
-      chip.onclick = () => { w.emph = !w.emph; chip.classList.toggle('emph', w.emph); commit(); };
-      chip.ondblclick = () => seek(w.s + 0.01);
+    c.words.forEach((w, i) => {
+      const isSel = c.id === selId && i === selWordIdx;
+      const chip = h('span', { class: 'word' + (w.emph ? ' emph' : '') + (isSel ? ' sel' : '') + (w.o && Object.keys(w.o).length ? ' styled' : ''), title: `${fmtS(w.s)}–${fmtS(w.e)} · לחיצה = עריכת המילה` }, w.t);
+      chip.onclick = () => isSel ? clearWord() : selectWord(c, i);
       words.append(chip);
     });
   };
   renderWords();
+  const wEd = c.id === selId && c.words[selWordIdx] ? wordEditor(c, selWordIdx) : null;
   const opts = h('div', { class: 'cap-opts hidden' });
   const o = c.o || (c.o = {});
   const mkSel = (label, key, map) => {
@@ -364,9 +412,48 @@ function capCard(c, idx) {
       h('button', { title: 'עיצוב / אנימציה לכתובית זו', onclick: () => opts.classList.toggle('hidden') }, '⚙'),
       h('button', { title: 'מחק', onclick: () => { P.captions = P.captions.filter(x => x !== c); commit(true); renderCaps(); } }, '🗑'),
     ),
-    ta, words, opts);
+    ta, words, wEd, opts);
   card.onclick = e => { if (e.target === card) { selId = c.id; highlightSel(); seek(c.s + 0.01); } };
   return card;
+}
+
+// ---------- עריכת מילה בודדת ----------
+const sameWord = (a, b) => a.trim() === b.trim();
+function occurrences(text) {
+  const out = [];
+  for (const c of P.captions) c.words.forEach((w, i) => { if (sameWord(w.t, text)) out.push([c, i]); });
+  return out;
+}
+function wordEditor(c, i) {
+  const w = c.words[i];
+  const orig = w.t;
+  const inp = h('input', { value: w.t, dir: 'auto', class: 'grow' });
+  const occ = occurrences(orig);
+  const applyHere = () => { const v = inp.value.trim(); if (!v) return; w.t = v; commit(true); renderCaps(); toast('✔ עודכן רק כאן'); };
+  const applyAll = () => {
+    const v = inp.value.trim(); if (!v) return;
+    let n = 0; for (const [cc, k] of occurrences(orig)) { cc.words[k].t = v; n++; }
+    commit(true); renderCaps(); toast(`🔁 עודכן ב-${n} מקומות בסרטון`);
+  };
+  inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); applyHere(); } if (e.key === 'Escape') clearWord(); };
+  inp.onfocus = () => video.pause();
+  const hasStyle = w.o && Object.keys(w.o).some(k => w.o[k] !== '' && w.o[k] != null);
+  const nudge = (ds, de) => { w.s = Math.max(c.s, Math.min(w.e - 0.05, w.s + ds)); w.e = Math.max(w.s + 0.05, Math.min(c.e, w.e + de)); commit(); renderCaps(); seek(w.s + 0.01); };
+  return h('div', { class: 'word-editor' },
+    h('div', { class: 'row gap-s' }, h('b', {}, '✏️ מילה'), inp, h('button', { class: 'btn small', title: 'סגור', onclick: () => clearWord() }, '✕')),
+    h('div', { class: 'row wrap gap-s' },
+      h('button', { class: 'btn small primary', onclick: applyHere }, '✔ שמור רק כאן'),
+      h('button', { class: 'btn small', onclick: applyAll, disabled: occ.length < 2 }, `🔁 שמור בכל הסרטון (${occ.length})`)),
+    h('div', { class: 'row wrap gap-s' },
+      h('button', { class: 'btn small' + (w.emph ? ' on' : ''), onclick: () => { w.emph = !w.emph; commit(true); renderCaps(); } }, w.emph ? '⭐ מודגשת' : '☆ הדגש'),
+      h('button', { class: 'btn small', onclick: () => { scope = 'word'; syncScope(); openTab('style'); toast('🎨 כל שינוי עיצוב יחול רק על המילה "' + w.t + '"'); } }, '🎨 עצב רק את המילה'),
+      hasStyle ? h('button', { class: 'btn small', onclick: () => { let n = 0; for (const [cc, k] of occ) if (cc.words[k] !== w) { cc.words[k].o = clone(w.o); n++; } commit(true); renderCaps(); toast(`העיצוב הועתק ל-${n} מופעים נוספים`); }, disabled: occ.length < 2 }, '🔁 אותו עיצוב בכל הסרטון') : null,
+      hasStyle ? h('button', { class: 'btn small', onclick: () => { w.o = {}; commit(true); renderCaps(); } }, '↺ אפס עיצוב') : null,
+      h('button', { class: 'btn small danger', onclick: () => { c.words.splice(i, 1); selWordIdx = -1; if (!c.words.length) P.captions = P.captions.filter(x => x !== c); commit(true); renderCaps(); syncScope(); } }, '🗑 מחק מילה')),
+    h('div', { class: 'row wrap gap-s mini' }, 'תזמון:',
+      h('button', { class: 'btn small', onclick: () => nudge(-0.1, 0) }, 'התחלה −0.1'), h('button', { class: 'btn small', onclick: () => nudge(0.1, 0) }, 'התחלה +0.1'),
+      h('button', { class: 'btn small', onclick: () => nudge(0, -0.1) }, 'סוף −0.1'), h('button', { class: 'btn small', onclick: () => nudge(0, 0.1) }, 'סוף +0.1'),
+      h('span', { style: 'direction:ltr' }, `${fmtS(w.s)}–${fmtS(w.e)}`)));
 }
 function highlightSel(scroll) {
   $$('.cap.sel').forEach(e => e.classList.remove('sel'));
@@ -477,7 +564,7 @@ const binders = [];
 function ctrl(obj, key, label, type, a = {}) {
   const getO = typeof obj === 'function' ? obj : () => obj;
   let input, val = h('span', { class: 'val' });
-  const set = v => { getO()[key] = v; if (a.onSet) a.onSet(v); if (obj === styleObj) rememberStyle(); commit(); };
+  const set = v => { getO()[key] = v; if (a.onSet) a.onSet(v); if (obj === styleObj && scope === 'all') rememberStyle(); commit(); syncScopeHints(); };
   if (type === 'range') {
     input = h('input', { type: 'range', min: a.min, max: a.max, step: a.step || 1 });
     input.oninput = () => { set(+input.value); val.textContent = a.fmt ? a.fmt(+input.value) : input.value; };
@@ -508,17 +595,69 @@ function ctrl(obj, key, label, type, a = {}) {
   return h('div', { class: 'ctrl' }, h('span', {}, label), input, type === 'range' ? val : h('span'));
 }
 const syncControls = () => binders.forEach(f => f());
-const styleObj = () => P.style;
+// ---------- היקף השינוי: כל הסרטון / כתובית / מילה ----------
+let scope = 'all';
+const WORD_KEYS = new Set(['fontFamily', 'fontWeight', 'italic', 'fontSize', 'color', 'gradient', 'color2', 'highlightColor', 'emphColor', 'emphScale',
+  'strokeColor', 'strokeWidth', 'shadowColor', 'shadowBlur', 'shadowX', 'shadowY', 'shadowOpacity', 'letterSpacing', 'uppercase']);
+const isSet = v => v !== undefined && v !== null && v !== '';
+function scopeTarget(forAnim) {
+  const c = selCap(), w = selWord();
+  let sc = scope;
+  if (sc === 'word' && (!w || forAnim)) sc = 'cap';
+  if (sc === 'cap' && !c) sc = 'all';
+  if (sc === 'all') return P.style;
+  const capO = () => c.o || (c.o = {});
+  const capGet = k => isSet(c.o?.[k]) ? c.o[k] : P.style[k];
+  if (sc === 'cap') return new Proxy({}, { get: (_, k) => capGet(k), set: (_, k, v) => { capO()[k] = v; return true; } });
+  return new Proxy({}, {
+    get: (_, k) => WORD_KEYS.has(k) && isSet(w.o?.[k]) ? w.o[k] : capGet(k),
+    set: (_, k, v) => { if (WORD_KEYS.has(k)) (w.o || (w.o = {}))[k] = v; else capO()[k] = v; return true; },
+  });
+}
+const styleObj = () => scopeTarget(false);
+const openTab = name => document.querySelector(`#tabs [data-tab="${name}"]`)?.click();
+const scopeBars = [];
+function scopeBar(forAnim) {
+  const seg = h('div', { class: 'seg scope-seg' });
+  const hint = h('div', { class: 'hint scope-hint' });
+  const reset = h('button', { class: 'btn small' }, '↺ אפס');
+  const bar = h('div', { class: 'scope-bar' }, h('div', { class: 'scope-title' }, 'השינויים יחולו על:'), seg, h('div', { class: 'row gap-s' }, hint, reset));
+  const sync = () => {
+    const c = selCap(), w = selWord();
+    const ci = c ? P.captions.indexOf(c) + 1 : 0;
+    const opts = [['all', '🌐 כל הסרטון', true], ['cap', c ? `💬 כתובית #${ci}` : '💬 כתובית', !!c]];
+    if (!forAnim) opts.push(['word', w ? `🔤 "${w.t.length > 10 ? w.t.slice(0, 10) + '…' : w.t}"` : '🔤 מילה', !!w]);
+    seg.innerHTML = '';
+    let eff = scope; if (forAnim && eff === 'word') eff = 'cap'; if (eff === 'word' && !w) eff = c ? 'cap' : 'all'; if (eff === 'cap' && !c) eff = 'all';
+    for (const [v, label, en] of opts) {
+      const b = h('button', { 'data-v': v, disabled: !en, class: v === eff ? 'active' : '' }, label);
+      b.onclick = () => { scope = v; syncScope(); };
+      seg.append(b);
+    }
+    const hasCapO = c && c.o && Object.values(c.o).some(isSet), hasWordO = w && w.o && Object.values(w.o).some(isSet);
+    hint.textContent = eff === 'all' ? (c ? 'בחר כתובית או מילה (הקשה על הסרטון או ברשימה) כדי לשנות רק אותה' : 'הקש על מילה בסרטון כדי לשנות רק אותה')
+      : eff === 'cap' ? (hasCapO ? 'לכתובית הזו יש עיצוב משלה' : 'שינוי כאן ישפיע רק על הכתובית הזו')
+      : (hasWordO ? 'למילה הזו יש עיצוב משלה' : 'שינוי כאן ישפיע רק על המילה הזו');
+    reset.classList.toggle('hidden', !(eff === 'cap' ? hasCapO : eff === 'word' ? hasWordO : false));
+    reset.onclick = () => { if (eff === 'cap') c.o = {}; else if (eff === 'word') w.o = {}; commit(true); syncScope(); renderCaps(); };
+    bar.dataset.scope = eff;
+  };
+  scopeBars.push(sync); sync();
+  return bar;
+}
+function syncScopeHints() { scopeBars.forEach(f => f()); }
+function syncScope() { syncScopeHints(); syncControls(); renderFontList(); needDraw = true; }
 const rememberStyle = () => localStorage.setItem('kt_last_style', JSON.stringify(P.style));
 const G = t => h('div', { class: 'group-title' }, t);
 
 function buildStyleControls() {
+  document.querySelector('[data-panel=style]').prepend(scopeBar(false));
   const S = styleObj;
   const fontSel = h('select', { id: 'fontSelect' });
   fontSel.onchange = () => setFamily(fontSel.value);
   const weightSel = h('select', { id: 'weightSelect' });
-  weightSel.onchange = () => { P.style.fontWeight = +weightSel.value; rememberStyle(); commit(); ensureFont(); renderFontList(); };
-  binders.push(() => { fillFontSelect(fontSel); fontSel.value = P.style.fontFamily; fillWeightSelect(weightSel); });
+  weightSel.onchange = () => { styleObj().fontWeight = +weightSel.value; if (scope === 'all') rememberStyle(); commit(); ensureFont(); renderFontList(); syncScopeHints(); };
+  binders.push(() => { fillFontSelect(fontSel); fontSel.value = styleObj().fontFamily; fillWeightSelect(weightSel); });
   $('#styleControls').append(
     G('טקסט'),
     h('div', { class: 'ctrl', style: 'grid-template-columns:110px 1fr' }, h('span', {}, 'גופן'), fontSel),
@@ -568,10 +707,10 @@ function buildStyleControls() {
 function animGrid(key, map) {
   const grid = h('div', { class: 'anim-grid' }, ...Object.entries(map).map(([k, v]) => {
     const b = h('button', { 'data-v': k }, v);
-    b.onclick = () => { P.style[key] = k; rememberStyle(); commit(); sync(); previewAnim(key); };
+    b.onclick = () => { scopeTarget(true)[key] = k; if (scope === 'all') rememberStyle(); commit(); sync(); syncScopeHints(); previewAnim(key); };
     return b;
   }));
-  const sync = () => [...grid.children].forEach(b => b.classList.toggle('active', P.style[key] === b.dataset.v));
+  const sync = () => { const v = scopeTarget(true)[key]; [...grid.children].forEach(b => b.classList.toggle('active', v === b.dataset.v)); };
   binders.push(sync); return grid;
 }
 function previewAnim(key) {
@@ -584,6 +723,7 @@ function previewAnim(key) {
   previewAnim.t = setTimeout(() => video.pause(), (key === 'animOut' ? 0.9 : Math.min(2.2, c.e - c.s + 0.1)) * 1000);
 }
 function buildAnimControls() {
+  document.querySelector('[data-panel=anim]').prepend(scopeBar(true));
   const S = styleObj;
   $('#animControls').append(
     G('כניסה'), animGrid('animIn', ANIMS_IN),
@@ -622,7 +762,11 @@ function drawPresets() {
     const c = h('canvas', { width: 240, height: 128 });
     const b = h('button', { class: 'preset', title: pr.n }, c);
     if (pr.user) { const d = h('span', { class: 'del', title: 'מחק' }, '✕'); d.onclick = ev => { ev.stopPropagation(); localStorage.setItem('kt_presets', JSON.stringify(userPresets().filter(x => x.n !== pr.n))); drawPresets(); }; b.append(d); }
-    b.onclick = () => { P.style = { ...P.style, ...pr.s, posX: P.style.posX, posY: pr.s.posY ?? (P.style.posY === 0.5 && pr.s.posY == null ? 0.72 : P.style.posY) }; rememberStyle(); commit(true); syncControls(); ensureFont(); toast('סגנון: ' + pr.n); };
+    b.onclick = () => {
+      if (scope === 'all' || !selCap()) { P.style = { ...P.style, ...pr.s, posX: P.style.posX, posY: pr.s.posY ?? (P.style.posY === 0.5 && pr.s.posY == null ? 0.72 : P.style.posY) }; rememberStyle(); }
+      else { const T = styleObj(); for (const [k, v] of Object.entries(pr.s)) if (k !== 'posX' && k !== 'posY') T[k] = v; }
+      commit(true); syncScope(); ensureFont(); toast('סגנון: ' + pr.n + (scope === 'all' ? '' : scope === 'word' && selWord() ? ' – רק למילה' : ' – רק לכתובית'));
+    };
     grid.append(b);
     const st = { ...DEFAULT_STYLE, ...pr.s, fontSize: (pr.s.fontSize || 7.2) * 1.55, posX: 0.5, posY: 0.55, maxWidth: 96, maxLines: 1, animIn: 'none', animOut: 'none' };
     const words = pr.s.wordAnim === 'oneWord' ? [{ t: 'כתוביות', s: 0, e: 1 }] : [{ t: 'כתוביות', s: 0, e: 0.4 }, { t: 'בעברית', s: 0.4, e: 1 }];
@@ -705,7 +849,7 @@ async function addFonts(files) {
   }
   if (ok) {
     const last = [...fams].pop();
-    P.style.fontFamily = last; P.style.fontWeight = nearestWeight(last, P.style.fontWeight);
+    { const T = styleObj(); T.fontFamily = last; T.fontWeight = nearestWeight(last, T.fontWeight); }
     rememberStyle(); commit(true); syncControls(); renderFontList(); ensureFont();
     toast(`נוספו ${fams.size} משפחות (${ok} משקלים) ✔`);
   }
@@ -720,8 +864,9 @@ function nearestWeight(fam, w) {
   return ws.reduce((a, b) => Math.abs(b - w) < Math.abs(a - w) ? b : a, ws[0]);
 }
 function setFamily(fam, weight) {
-  P.style.fontFamily = fam; P.style.fontWeight = weight ?? nearestWeight(fam, P.style.fontWeight);
-  rememberStyle(); commit(true); syncControls(); ensureFont(); renderFontList();
+  const T = styleObj();
+  T.fontFamily = fam; T.fontWeight = weight ?? nearestWeight(fam, T.fontWeight);
+  if (scope === 'all') rememberStyle(); commit(true); syncControls(); ensureFont(); renderFontList();
 }
 $('#btnLocalFonts').onclick = async () => {
   if (!window.queryLocalFonts) return toast('זמין רק ב-Chrome/Edge במחשב. בטלפון – העלה קבצי גופן או ZIP.');
@@ -742,29 +887,29 @@ function fillFontSelect(sel) {
   const grp = (label, arr) => { if (!arr.length) return; const g = h('optgroup', { label }); arr.forEach(n => g.append(h('option', { value: n }, n))); sel.append(g); };
   grp('הגופנים שלי', [...userFams.keys()].sort());
   grp('גופנים עבריים', BUILTIN_FONTS);
-  if (![...sel.options].some(o => o.value === P.style.fontFamily)) sel.prepend(h('option', { value: P.style.fontFamily }, P.style.fontFamily));
+  if (![...sel.options].some(o => o.value === styleObj().fontFamily)) sel.prepend(h('option', { value: styleObj().fontFamily }, styleObj().fontFamily));
 }
 function fillWeightSelect(sel) {
   sel.innerHTML = '';
-  for (const w of weightsOf(P.style.fontFamily)) sel.append(h('option', { value: w }, `${WEIGHT_NAMES[w] || w} · ${w}`));
-  if (![...sel.options].some(o => +o.value === +P.style.fontWeight)) sel.append(h('option', { value: P.style.fontWeight }, `${P.style.fontWeight} (מדומה)`));
-  sel.value = P.style.fontWeight;
+  for (const w of weightsOf(styleObj().fontFamily)) sel.append(h('option', { value: w }, `${WEIGHT_NAMES[w] || w} · ${w}`));
+  if (![...sel.options].some(o => +o.value === +styleObj().fontWeight)) sel.append(h('option', { value: styleObj().fontWeight }, `${styleObj().fontWeight} (מדומה)`));
+  sel.value = styleObj().fontWeight;
 }
 function renderFontList() {
   const el = $('#fontList'); el.innerHTML = '';
   const fam = (name, faces, del) => {
     const ws = faces || weightsOf(name).map(w => ({ weight: w, style: 'normal' }));
-    const cur = P.style.fontFamily === name;
+    const cur = styleObj().fontFamily === name;
     const chips = h('div', { class: 'wchips' }, ...ws.map(f => {
-      const c = h('button', { class: 'wchip' + (cur && +P.style.fontWeight === f.weight ? ' on' : ''), style: `font-family:"${name}";font-weight:${f.weight};font-style:${f.style}`, title: f.file || '' },
+      const c = h('button', { class: 'wchip' + (cur && +styleObj().fontWeight === f.weight ? ' on' : ''), style: `font-family:"${name}";font-weight:${f.weight};font-style:${f.style}`, title: f.file || '' },
         (WEIGHT_NAMES[f.weight] || f.weight) + (f.style === 'italic' ? ' נטוי' : ''));
-      c.onclick = e => { e.stopPropagation(); P.style.italic = f.style === 'italic'; setFamily(name, f.weight); };
+      c.onclick = e => { e.stopPropagation(); styleObj().italic = f.style === 'italic'; setFamily(name, f.weight); };
       return c;
     }));
     const heavy = Math.max(...ws.map(f => f.weight));
     const it = h('div', { class: 'font-item' + (cur ? ' cur' : '') },
       h('div', { class: 'grow' },
-        h('div', { class: 'sample', style: `font-family:"${name}";font-weight:${cur ? P.style.fontWeight : heavy}` }, 'כתוביות מטורפות'),
+        h('div', { class: 'sample', style: `font-family:"${name}";font-weight:${cur ? styleObj().fontWeight : heavy}` }, 'כתוביות מטורפות'),
         h('small', {}, `${name} · ${ws.length} ${ws.length === 1 ? 'משקל' : 'משקלים'}`), chips));
     if (del) it.append(h('button', { class: 'btn small danger', title: 'מחק את כל המשפחה', onclick: async e => {
       e.stopPropagation(); if (!confirm(`למחוק את "${name}" עם כל המשקלים?`)) return;
@@ -1011,6 +1156,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowRight') seek(video.currentTime - (e.shiftKey ? 1 : 0.1));
 });
 
+new ResizeObserver(() => document.documentElement.style.setProperty('--tabsH', $('#tabs').offsetHeight + 'px')).observe($('#tabs'));
 // ================== INIT ==================
 function refreshAll() { sizeCanvas(); renderCaps(); syncControls(); renderFontList(); if (!$('[data-panel=export]').classList.contains('hidden')) renderExport(); needDraw = true; }
 buildStyleControls(); buildAnimControls(); buildFramePanel();
