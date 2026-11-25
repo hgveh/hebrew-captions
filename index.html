@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>כתוביות – עורך כתוביות בעברית</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;800;900&family=Rubik:wght@400;500;700;900&family=Assistant:wght@400;600;800&family=Secular+One&family=Varela+Round&family=Suez+One&family=Frank+Ruhl+Libre:wght@400;700;900&family=Karantina:wght@400;700&family=Amatic+SC:wght@400;700&family=Bellefair&family=Noto+Sans+Hebrew:wght@400;700;900&family=Fredoka:wght@400;600;700&family=Alef:wght@400;700&family=Bona+Nova:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">כ</span> כתוביות</div>
+  <div class="top-actions">
+    <button id="btnUndo" class="icon-btn" title="בטל (Ctrl+Z)">↶</button>
+    <button id="btnRedo" class="icon-btn" title="בצע שוב (Ctrl+Y)">↷</button>
+    <button id="btnNew" class="icon-btn" title="סרטון חדש">＋</button>
+    <button id="btnSettings" class="icon-btn" title="הגדרות תמלול">⚙</button>
+  </div>
+</header>
+
+<!-- מסך פתיחה -->
+<section id="welcome" class="welcome">
+  <label class="dropzone" id="dropzone">
+    <input type="file" id="fileInput" accept="video/*" hidden>
+    <div class="dz-icon">🎬</div>
+    <div class="dz-title">העלה את הסרטון שערכת</div>
+    <div class="dz-sub">לחץ לבחירה או גרור לכאן · MP4 / MOV / WEBM</div>
+  </label>
+  <p class="hint">הסרטון לא נשמר בשרת – הכול רץ אצלך במכשיר. רק האודיו נשלח לשירות התמלול שבחרת.</p>
+</section>
+
+<!-- עורך -->
+<main id="editor" class="editor hidden">
+  <div class="stage-col">
+    <div class="stage-wrap" id="stageWrap">
+      <canvas id="preview"></canvas>
+      <div class="drag-mode">
+        <button data-drag="captions" class="chip active">✋ הזז כתוביות</button>
+        <button data-drag="frame" class="chip">🖼 הזז תמונה</button>
+      </div>
+    </div>
+    <div class="transport">
+      <button id="btnPlay" class="play-btn">▶</button>
+      <span id="timeLabel" class="time">00:00.0 / 00:00.0</span>
+      <button id="btnMute" class="icon-btn small" title="השתק">🔊</button>
+    </div>
+    <div class="timeline" id="timeline">
+      <canvas id="timelineCanvas"></canvas>
+    </div>
+    <video id="video" playsinline preload="auto" crossorigin="anonymous"></video>
+  </div>
+
+  <div class="panel-col">
+    <nav class="tabs" id="tabs">
+      <button data-tab="captions" class="active">📝 כתוביות</button>
+      <button data-tab="style">🎨 עיצוב</button>
+      <button data-tab="anim">✨ אנימציה</button>
+      <button data-tab="fonts">🔤 גופנים</button>
+      <button data-tab="frame">📐 מסגור</button>
+      <button data-tab="export" class="tab-export">📲 ייצוא</button>
+    </nav>
+
+    <!-- כתוביות -->
+    <section class="tab-panel" data-panel="captions">
+      <div class="card">
+        <button id="btnTranscribe" class="btn primary block big">🎙 תמלל אוטומטית</button>
+        <select id="providerQuick" title="שירות תמלול"></select>
+        <div id="transcribeStatus" class="status-line"></div>
+        <div class="row wrap gap-s">
+          <label class="mini">מילים לכתובית <input type="number" id="segMaxWords" min="1" max="15" value="4"></label>
+          <label class="mini">תווים מקס׳ <input type="number" id="segMaxChars" min="5" max="80" value="24"></label>
+          <label class="mini chk"><input type="checkbox" id="segPunct" checked> חתוך בפיסוק</label>
+          <button id="btnResegment" class="btn small">↻ חלק מחדש</button>
+        </div>
+      </div>
+
+      <details class="card tools">
+        <summary>🧰 כלים</summary>
+        <div class="tool-grid">
+          <button id="btnAddCap" class="btn small">＋ כתובית בזמן הנוכחי</button>
+          <button id="btnFillers" class="btn small">🧹 הסר מילות מילוי (אממ, אה…)</button>
+          <button id="btnAutoEmoji" class="btn small">😀 אימוג׳י אוטומטי</button>
+          <button id="btnClearEmoji" class="btn small">🚫 נקה אימוג׳י</button>
+          <button id="btnAutoEmph" class="btn small">⭐ הדגשה אוטומטית</button>
+          <button id="btnRemovePunct" class="btn small">✂ הסר פיסוק</button>
+          <button id="btnCensor" class="btn small">🤬 צנזר קללות</button>
+          <button id="btnCopyText" class="btn small">📋 העתק תמליל</button>
+        </div>
+        <div class="row wrap gap-s">
+          <input id="findText" placeholder="חפש" class="grow">
+          <input id="replaceText" placeholder="החלף ב" class="grow">
+          <button id="btnReplace" class="btn small">החלף הכול</button>
+        </div>
+        <div class="row wrap gap-s">
+          <label class="mini">הזזת תזמון (שנ׳) <input type="number" id="shiftSec" step="0.05" value="0"></label>
+          <button id="btnShift" class="btn small">הזז הכול</button>
+        </div>
+        <div class="row wrap gap-s">
+          <button id="btnExportSrt" class="btn small">⬇ SRT</button>
+          <button id="btnExportVtt" class="btn small">⬇ VTT</button>
+          <button id="btnExportTxt" class="btn small">⬇ TXT</button>
+          <label class="btn small">⬆ ייבא SRT/VTT<input type="file" id="importSrt" accept=".srt,.vtt,text/plain" hidden></label>
+          <button id="btnSaveProject" class="btn small">💾 שמור פרויקט</button>
+          <label class="btn small">📂 טען פרויקט<input type="file" id="loadProject" accept=".json,application/json" hidden></label>
+        </div>
+      </details>
+
+      <div id="capList" class="cap-list"></div>
+      <div id="capEmpty" class="empty">עדיין אין כתוביות. לחץ על <b>תמלל אוטומטית</b> או הוסף ידנית.</div>
+    </section>
+
+    <!-- עיצוב -->
+    <section class="tab-panel hidden" data-panel="style">
+      <div class="card">
+        <h3>סגנונות מוכנים</h3>
+        <div id="presetGrid" class="preset-grid"></div>
+        <div class="row gap-s">
+          <button id="btnSavePreset" class="btn small">💾 שמור את העיצוב שלי כסגנון</button>
+        </div>
+      </div>
+      <div class="card" id="styleControls"></div>
+    </section>
+
+    <!-- אנימציה -->
+    <section class="tab-panel hidden" data-panel="anim">
+      <div class="card" id="animControls"></div>
+      <p class="hint">אפשר לקבוע אנימציה שונה לכתובית מסוימת – בכרטיס הכתובית בלשונית "כתוביות" (⚙).</p>
+    </section>
+
+    <!-- גופנים -->
+    <section class="tab-panel hidden" data-panel="fonts">
+      <div class="card">
+        <h3>העלאת גופן משלך</h3>
+        <p class="hint">כל קובץ גופן: TTF, OTF, WOFF, WOFF2 – כולל גופנים מסחריים/פרטיים שאינם גופני ווב. הגופנים נשמרים במכשיר.</p>
+        <label class="btn primary block">⬆ העלה קבצי גופן<input type="file" id="fontInput" accept=".ttf,.otf,.woff,.woff2,font/*,application/font-sfnt,application/x-font-ttf,application/octet-stream" multiple hidden></label>
+        <button id="btnLocalFonts" class="btn block">💻 טען גופנים מותקנים במחשב</button>
+        <div id="fontList" class="font-list"></div>
+      </div>
+    </section>
+
+    <!-- מסגור -->
+    <section class="tab-panel hidden" data-panel="frame" id="framePanel"></section>
+
+    <!-- ייצוא -->
+    <section class="tab-panel hidden" data-panel="export">
+      <div class="card">
+        <h3>יעד</h3>
+        <div class="seg" id="exportTarget">
+          <button data-v="status" class="active">🟢 סטטוס וואטסאפ</button>
+          <button data-v="file">🎞 סרטון רגיל</button>
+        </div>
+        <div id="exportOptions"></div>
+      </div>
+      <div class="card" id="statusPlan"></div>
+      <button id="btnExport" class="btn primary block big">📲 ייצא</button>
+      <div id="exportProgress" class="progress hidden"><div class="bar"></div><span></span><button id="btnCancelExport" class="btn small">ביטול</button></div>
+      <div id="exportResults"></div>
+    </section>
+  </div>
+</main>
+
+<!-- הגדרות -->
+<dialog id="settingsDlg">
+  <form method="dialog" class="dlg">
+    <h2>הגדרות תמלול</h2>
+    <label>שירות תמלול
+      <select id="setProvider"></select>
+    </label>
+    <div id="providerHelp" class="hint"></div>
+    <label>מפתח API<input id="setKey" type="password" autocomplete="off" dir="ltr" placeholder="sk-..."></label>
+    <label>מודל<input id="setModel" dir="ltr"></label>
+    <label id="endpointRow">כתובת שרת (OpenAI-compatible)<input id="setEndpoint" dir="ltr" placeholder="https://my-server/v1/audio/transcriptions"></label>
+    <label>מילון מונחים / שמות (משפר דיוק)
+      <textarea id="setVocab" rows="3" placeholder="לדוגמה: שמות של אנשים, מותגים, מונחים מקצועיים"></textarea>
+    </label>
+    <p class="hint">המפתחות נשמרים רק בדפדפן שלך (localStorage) ונשלחים ישירות לספק התמלול.</p>
+    <div class="row end"><button class="btn primary" value="ok">שמור</button></div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
