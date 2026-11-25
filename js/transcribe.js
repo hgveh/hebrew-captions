@@ -3,7 +3,7 @@ import { Input, BlobSource, ALL_FORMATS, AudioBufferSink } from './vendor/mediab
 
 export const PROVIDERS = {
   elevenlabs: {
-    name: 'ElevenLabs Scribe (מומלץ – הכי מדויק לעברית)', model: 'scribe_v1',
+    name: 'ElevenLabs Scribe v2 (מומלץ – הכי מדויק לעברית)', model: 'scribe_v2',
     help: 'הדיוק הגבוה ביותר לעברית כולל פיסוק ותזמון לכל מילה. מפתח ב-elevenlabs.io → Profile → API Keys.',
   },
   openai: {
@@ -95,10 +95,9 @@ async function elevenlabs(blob, key, model, vocab) {
   fd.append('tag_audio_events', 'false');
   if (vocab) vocab.split(/[,\n]/).map(s => s.trim()).filter(Boolean).slice(0, 100).forEach(k => fd.append('keyterms', k));
   let r = await fetch('https://api.elevenlabs.io/v1/speech-to-text', { method: 'POST', headers: { 'xi-api-key': key }, body: fd });
-  if (!r.ok && vocab) { // אם המודל לא תומך במונחים – ננסה בלי
-    fd.delete('keyterms');
-    r = await fetch('https://api.elevenlabs.io/v1/speech-to-text', { method: 'POST', headers: { 'xi-api-key': key }, body: fd });
-  }
+  const retry = () => fetch('https://api.elevenlabs.io/v1/speech-to-text', { method: 'POST', headers: { 'xi-api-key': key }, body: fd });
+  if (!r.ok && r.status !== 401 && vocab) { fd.delete('keyterms'); r = await retry(); } // מודל שלא תומך במונחים
+  if (!r.ok && r.status !== 401 && model !== 'scribe_v1') { fd.set('model_id', 'scribe_v1'); r = await retry(); } // גיבוי למודל הקודם
   if (!r.ok) throw new Error('ElevenLabs: ' + (await errText(r)));
   const j = await r.json();
   return (j.words || []).filter(w => w.type === 'word' || (!w.type && w.text?.trim()))

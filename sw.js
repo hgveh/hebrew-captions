@@ -1,5 +1,5 @@
 // Service worker: עבודה אופליין + קבלת סרטונים ששותפו מהגלריה
-const CACHE = 'kt-v1';
+const CACHE = 'kt-v2';
 const SHELL = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/renderer.js', 'js/transcribe.js', 'js/exporter.js', 'js/storage.js', 'js/vendor/mediabunny.min.mjs', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
